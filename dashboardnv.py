@@ -1213,21 +1213,21 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
                 flag_parts.append(f"{k} {v}")
             else:
                 flag_parts.append(k)
-        # Wrap into lines of ~65 chars max
+        # Wrap flags across up to 3 lines (~60 chars each)
         current_line = []
         current_len = 0
         wrapped_lines = []
         for fp in flag_parts:
-            if current_line and current_len + len(fp) + 1 > 65:
+            if current_line and current_len + len(fp) + 1 > 60:
                 wrapped_lines.append(" ".join(current_line))
                 current_line = [fp]
                 current_len = len(fp)
             else:
                 current_line.append(fp)
-                current_len += len(fp) + (1 if current_line else 0)
+                current_len += len(fp) + 1
         if current_line:
             wrapped_lines.append(" ".join(current_line))
-        for wl in wrapped_lines[:2]:  # max 2 lines of flags
+        for wl in wrapped_lines[:3]:  # up to 3 lines of flags
             lines.append(f"  {DIM}   {wl}{RESET}")
     lines.append(f" {DIM}Refresh: {refresh_interval}s | Ctrl+C to quit")
     lines.append(f" {DIM}GPU UTIL >5% = active")
