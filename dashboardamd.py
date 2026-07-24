@@ -1157,7 +1157,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     lines = []
 
     lines.append(f" {BOLD}{CYAN}{'═' * 56}{RESET}")
-    lines.append(f" {BOLD}  GPU Dashboard{RESET}  {now}")
+    lines.append(f" {BOLD}  llama-swap Dashboard{RESET}  {now}")
     lines.append(f" {BOLD}{CYAN}{'═' * 56}{RESET}")
     lines.append("")
 
