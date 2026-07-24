@@ -612,8 +612,9 @@ def short_model_name(model_path_or_id):
     if e_var and family == 'g':
         return f"Ge{e_var.group(1)}"
 
-    # Detect total params XB pattern (e.g., 27B, 35B, 4B, 122B)
+    # Detect total params XB or XT pattern (e.g., 27B, 35B, 1T)
     params = re.search(r'(\d+)b', text)
+    tparams = re.search(r'(\d+)t', text)
     if params:
         param_str = params.group(1)
 
@@ -627,13 +628,22 @@ def short_model_name(model_path_or_id):
             return f"Dr{param_str}"
 
         return f"{family[0].upper()}{family[1:]}{param_str}"
+    if tparams:
+        # Trillion-param models get "T" denotation
+        t_str = tparams.group(1)
 
-    # Handle models without "XB" param suffix in filename
+        moe = re.search(r'a(\d+)b', text)
+        if moe:
+            return f"{family[0].upper()}{family[1:]}{t_str}Ta{moe.group(1)}"
+
+        return f"{family[0].upper()}{family[1:]}{t_str}T"
+
+    # Handle models without "XB" or "XT" param suffix in filename
     # (e.g., Kimi-K2-Instruct-Q4_K_M.gguf, GLM-5.2-Instruct-Q4_K_M.gguf)
     if family == 'kk':
-        return "Kk1"  # Kimi K2 = 1T total, 32B activated
+        return "Kk1Ta32"  # Kimi K2 = 1T total, 32B activated
     if family == 'gl':
-        return "Gl5"  # GLM-5.2
+        return "Gl744a40"  # GLM-5.2 = 744B total, 40B activated
     if family == 'la':
         # Distinguish S-2.1 (118B-A8B) vs XS-2.1 (33B-A3B)
         if 'xs' in text:
