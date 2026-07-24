@@ -786,16 +786,21 @@ def calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, num_tokens, iswa_w
     Formula: 2 * layers * kv_heads * head_dim * cache_bytes * tokens / 1MB
     With iSWA: effective layers = layers/2 + layers/2 * min(ctx/window, 1)
     With effective_layers: overrides 'layers' for KV-bearing layers (e.g. Qwen 3.5/3.6 DeltaNet).
-    With gemma4_kv: Gemma 4 global layers reuse keys as values → 50% reduction on global cache."""
+    With gemma4_kv: Gemma 4 global layers reuse keys as values → 50% reduction on global cache.
+    Gemma 2: 1:1 global/sliding ratio (50% global).
+    Gemma 3/4: 5:1 local/global ratio (~17% global). E2B uses 4:1."""
     # Determine which layers to use
     kv_layers = effective_layers if effective_layers is not None else layers
     if iswa_window is not None and iswa_window > 0:
-        # Interleaved sliding window: half layers cache full context, half cache only the window
-        global_layers = kv_layers // 2
+        # Interleaved sliding window: most layers cache only the window, few cache full context
+        # Gemma 2: 1:1 ratio → half global, half sliding
+        # Gemma 3/4: 5:1 ratio → ~1/6 global, ~5/6 sliding (E2B uses 4:1)
+        global_ratio = 6 if iswa_window <= 1024 else 2  # Gemma 3/4=6, Gemma 2=2
+        global_layers = kv_layers // global_ratio
         sliding_layers = kv_layers - global_layers
         # Gemma 4 global layers use K=V (keys reused as values) → 50% reduction on global cache
-        global_ratio = 0.5 if gemma4_kv else 1.0
-        effective_tokens = global_layers * num_tokens * global_ratio + sliding_layers * min(num_tokens, iswa_window)
+        global_cache_ratio = 0.5 if gemma4_kv else 1.0
+        effective_tokens = global_layers * num_tokens * global_cache_ratio + sliding_layers * min(num_tokens, iswa_window)
         bytes_total = 2 * kv_heads * head_dim * cache_bytes * effective_tokens
     else:
         bytes_total = 2 * kv_layers * kv_heads * head_dim * cache_bytes * num_tokens
@@ -901,8 +906,10 @@ def get_main_model_vram(running_models, valid_metrics):
     cache_bytes = get_cache_bytes(active["cache_type"], active["model_quant"])
     # Calculate reserved KV cache (full --ctx-size budget)
     if is_mla:
-        # MLA: ~70 KB/token (compressed key/value + RoPE keys)
-        cache_mb = 70.0 * ctx_size / (1024)
+        # MLA: ~70 KB/token at FP16/BF16 (compressed key/value + RoPE keys).
+        # Scales linearly with cache quantization — q8_0 halves the cache, etc.
+        mla_base_mb = 70.0 * ctx_size / (1024)
+        cache_mb = mla_base_mb * (cache_bytes / 2.0)
     else:
         cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, effective_layers, gemma4_kv)
     # Apply --cache-ram cap if set (limits KV cache on GPU, rest spills to DRAM)
