@@ -1203,7 +1203,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         rm = running_models[0]
         gguf = os.path.basename(rm["model_path"])
         lines.append(f"  {DIM}└─ {gguf}{RESET}")
-        # Build flag strings from all_flags
+        # Build flag parts, keeping related flags together
         all_f = rm.get("all_flags", {})
         flag_parts = []
         for k, v in all_f.items():
@@ -1213,22 +1213,46 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
                 flag_parts.append(f"{k} {v}")
             else:
                 flag_parts.append(k)
-        # Wrap flags across up to 3 lines (~60 chars each)
-        current_line = []
-        current_len = 0
-        wrapped_lines = []
-        for fp in flag_parts:
-            if current_line and current_len + len(fp) + 1 > 60:
-                wrapped_lines.append(" ".join(current_line))
-                current_line = [fp]
-                current_len = len(fp)
+        # Group related flags: batch+ubatch together, keep others separate
+        grouped = []
+        i = 0
+        while i < len(flag_parts):
+            fp = flag_parts[i]
+            # Keep -b and -ub together
+            if fp.startswith("-b ") and i + 1 < len(flag_parts) and flag_parts[i + 1].startswith("-ub "):
+                grouped.append(f"{fp} {flag_parts[i + 1]}")
+                i += 2
             else:
-                current_line.append(fp)
-                current_len += len(fp) + 1
-        if current_line:
-            wrapped_lines.append(" ".join(current_line))
-        for wl in wrapped_lines[:3]:  # up to 3 lines of flags
-            lines.append(f"  {DIM}   {wl}{RESET}")
+                grouped.append(fp)
+                i += 1
+        # Calculate total width available (~56 chars of terminal)
+        total_width = 56
+        # Build rows greedily, allowing longer flags to span columns
+        rows = []
+        current_row = []
+        current_len = 0
+        for fp in grouped:
+            fp_len = len(fp)
+            # If adding this would overflow, start new row
+            if current_row and current_len + fp_len + 2 > total_width:
+                rows.append(current_row)
+                current_row = [fp]
+                current_len = fp_len
+            elif fp_len > total_width:
+                # Very long flag gets its own row
+                if current_row:
+                    rows.append(current_row)
+                rows.append([fp])
+                current_row = []
+                current_len = 0
+            else:
+                current_row.append(fp)
+                current_len += fp_len + 2
+        if current_row:
+            rows.append(current_row)
+        # Render up to 3 rows
+        for row in rows[:3]:
+            lines.append(f"  {DIM}   {' '.join(row)}{RESET}")
     lines.append(f" {DIM}Refresh: {refresh_interval}s | Ctrl+C to quit")
     lines.append(f" {DIM}GPU UTIL >5% = active")
     lines.append("")
