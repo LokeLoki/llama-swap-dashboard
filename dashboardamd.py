@@ -866,6 +866,9 @@ def get_main_model_vram(running_models, valid_metrics):
     if not arch:
         return None
     layers, kv_heads, head_dim = arch
+    # DeepSeek R1/V3 use MLA (Multi-head Latent Attention) — compressed KV cache.
+    # Standard formula wildly overestimates. Use flat ~70 KB/token instead.
+    is_mla = "deepseek" in active["model_path"].lower() or "kimi" in active["model_path"].lower()
     # Get weights size
     weight_mb = active.get("model_file_mb", 0)
     if weight_mb == 0:
@@ -886,7 +889,11 @@ def get_main_model_vram(running_models, valid_metrics):
     # Get cache bytes
     cache_bytes = get_cache_bytes(active["cache_type"], active["model_quant"])
     # Calculate reserved KV cache (full --ctx-size budget)
-    cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size)
+    if is_mla:
+        # MLA: ~70 KB/token (compressed key/value + RoPE keys)
+        cache_mb = 70.0 * ctx_size / (1024)
+    else:
+        cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size)
     # Apply --cache-ram cap if set (limits KV cache on GPU, rest spills to DRAM)
     cache_ram_cap = active.get("cache_ram_mb", -1)
     if cache_ram_cap > 0:
@@ -941,7 +948,12 @@ def get_aux_vram(aux_info, aux_port):
             # Ollama KV cache defaults to q8_0; user can set OLLAMA_KV_CACHE_TYPE
             cache_bytes = 1.0
             ctx = aux_info.context_length
-            cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx)
+            # DeepSeek/Kimi use MLA — flat ~70 KB/token
+            aux_is_mla = "deepseek" in aux_info.name.lower() or "kimi" in aux_info.name.lower()
+            if aux_is_mla:
+                cache_mb = 70.0 * ctx / (1024)
+            else:
+                cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx)
             total = weight_mb + cache_mb
             get_aux_vram._cache = {"name": aux_info.name, "total_mb": total}
             return total
