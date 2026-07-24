@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+.DS_Store
+Thumbs.db
+*.log
+venv/
+.venv/
+config.yaml
+models/
+llama-swap.exe
+*.exe
+*.txt
+router.ps1
