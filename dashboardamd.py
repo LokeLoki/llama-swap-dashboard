@@ -575,19 +575,15 @@ def fetch_running_models(host):
                     pass
             # Parse ALL flags generically from cmd
             all_flags = {}
-            # Match --flag value or -f value patterns
-            for flag_match in re.finditer(r'(?:^|\s)(--[a-zA-Z0-9_-]+|--[a-zA-Z0-9_-]+(?:\s+[^\s"]+)|-[a-zA-Z]\s+([^\s"]+))', cmd):
-                flag_str = flag_match.group(1).strip()
+            for match in re.finditer(r'(?:^|\s)((?:--|-[a-zA-Z])[a-zA-Z0-9_-]*\s+(?:"[^"]*"|[^\s]+)|(?:--|-[a-zA-Z])[a-zA-Z0-9_-]*(?:\s|$))', cmd):
+                flag_str = match.group(1).strip()
                 parts = flag_str.split(None, 1)
                 flag_name = parts[0]
                 flag_value = parts[1] if len(parts) > 1 else None
-                # Skip executable path
                 if flag_name in ('llama-server.exe', 'llama-server'):
                     continue
-                # Handle quoted values
                 if flag_value and flag_value.startswith('"') and flag_value.endswith('"'):
                     flag_value = flag_value.strip('"')
-                # Store GGUF paths as basenames only
                 if flag_value and flag_value.endswith('.gguf'):
                     flag_value = os.path.basename(flag_value)
                 all_flags[flag_name] = flag_value
@@ -1284,15 +1280,22 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
                 flag_parts.append(f"{k} {v}")
             else:
                 flag_parts.append(k)
-        # Split into two lines of ~70 chars each
-        flag_str = " ".join(flag_parts)
-        mid = len(flag_parts) // 2
-        line1 = " ".join(flag_parts[:mid])
-        line2 = " ".join(flag_parts[mid:])
-        if line1:
-            lines.append(f"  {DIM}   {line1}{RESET}")
-        if line2:
-            lines.append(f"  {DIM}   {line2}{RESET}")
+        # Wrap into lines of ~65 chars max
+        current_line = []
+        current_len = 0
+        wrapped_lines = []
+        for fp in flag_parts:
+            if current_line and current_len + len(fp) + 1 > 65:
+                wrapped_lines.append(" ".join(current_line))
+                current_line = [fp]
+                current_len = len(fp)
+            else:
+                current_line.append(fp)
+                current_len += len(fp) + (1 if current_line else 0)
+        if current_line:
+            wrapped_lines.append(" ".join(current_line))
+        for wl in wrapped_lines[:2]:  # max 2 lines of flags
+            lines.append(f"  {DIM}   {wl}{RESET}")
 
     lines.append(f" {DIM}Refresh: {refresh_interval}s | Ctrl+C to quit")
     lines.append(f" {DIM}GPU UTIL >5% = active")
