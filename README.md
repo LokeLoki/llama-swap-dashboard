@@ -86,7 +86,7 @@ python dashboardnv.py --help
 - **Last Prompts** — Rolling log of the 3 most recent inference requests with decode speed, prompt speed, input/output tokens, and cache hit count
 - **Session Tokens** — Cumulative input, output, and request count for the active model
 
-## Model VRAM Calculation
+## Model VRAM Calculation (EXPERIMENTAL)
 
 The dashboard estimates total VRAM usage by combining model weights with a calculated KV cache size. When multimodal (`--mmproj`) or speculative decoding (`--model-draft` / DFlash / MTP) are used, the exact file sizes of those models are included in the calculation too. The `--cache-ram` flag is respected — KV cache is capped to the specified limit when set, preventing overestimation when cache spills to DRAM.
 
@@ -96,7 +96,9 @@ It works by looking up each model's architecture (layers, KV heads, head dimensi
 cache = 2 × layers × kv_heads × head_dim × cache_bytes × tokens
 ```
 
-The cache bytes come from the model's quantization level (e.g. Q4_K_M = 0.5, Q8_0 = 1.0) or an explicit `-ctk` flag. This gives you a real-time breakdown of how much VRAM the model weights and active context are actually consuming.
+The cache bytes come from the model's `-ctk` flag or default to F16 (2.0 bytes) when not set.
+
+**Caveats:** The formula assumes linear KV cache growth up to max context. Models with hybrid sliding window attention (Gemma 4, Qwen3.6) will show a conservative ceiling — actual cache may be lower once context exceeds the sliding window limit, as those layers prune older tokens. This is intentional: the dashboard reports maximum possible VRAM for safe capacity planning.
 
 ## Keyboard
 
