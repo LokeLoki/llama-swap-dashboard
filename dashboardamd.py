@@ -201,11 +201,26 @@ GEMMA_ISWA_WINDOW = {
     "gemma2-27b": 4096,
     "gemma2-9b":  4096,
     "gemma2-2b":  4096,
-    "gemma4-e4b": 4096,
-    "gemma4-e2b": 4096,
-    "gemma4-12b": 4096,
-    "gemma4-31b": 4096,
-    "gemma4-26b-a4b": 4096,
+    "gemma4-e4b": 512,
+    "gemma4-e2b": 512,
+    "gemma4-12b": 1024,
+    "gemma4-31b": 1024,
+    "gemma4-26b-a4b": 1024,
+}
+
+# Qwen 3.5/3.6 hybrid attention: 3:1 DeltaNet:GatedAttn ratio.
+# Only 25% of layers carry KV cache (DeltaNet is linear attention, no KV).
+QWEN_HYBRID_LAYERS = {
+    "qwen3.6-27b":   16,   # 64 total → 16 GatedAttn
+    "qwen3.5-27b":   16,
+    "qwen3.5-9b":    12,   # 48 total → 12 GatedAttn
+    "qwen3.5-8b":    12,
+    # Qwen 3.5 MoE
+    "qwen3.5-35b-a3b":    12,   # 48 total → 12 GatedAttn
+    "qwen3.5-122b-a10b":  16,   # 64 total → 16 GatedAttn
+    "qwen3.5-397b-a17b":  18,   # 72 total → 18 GatedAttn
+    # Bonsai 27B (same Qwen3.6-27B architecture)
+    "bonsai":        16,
 }
 
 RESET = "\033[0m"
@@ -815,20 +830,24 @@ def find_model_arch(model_path, model_quant):
     return None
 
 
-def calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, num_tokens, iswa_window=None):
+def calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, num_tokens, iswa_window=None, effective_layers=None, gemma4_kv=False):
     """Calculate KV cache size in MB.
     Formula: 2 * layers * kv_heads * head_dim * cache_bytes * tokens / 1MB
-    With iSWA: effective layers = layers/2 + layers/2 * min(ctx/window, 1)"""
+    With iSWA: effective layers = layers/2 + layers/2 * min(ctx/window, 1)
+    With effective_layers: overrides 'layers' for KV-bearing layers (e.g. Qwen 3.5/3.6 DeltaNet).
+    With gemma4_kv: Gemma 4 global layers reuse keys as values → 50% reduction on global cache."""
+    # Determine which layers to use
+    kv_layers = effective_layers if effective_layers is not None else layers
     if iswa_window is not None and iswa_window > 0:
         # Interleaved sliding window: half layers cache full context, half cache only the window
-        global_layers = layers // 2
-        sliding_layers = layers - global_layers
-        effective_tokens = global_layers * num_tokens + sliding_layers * min(num_tokens, iswa_window)
-        total_layers_tokens = effective_tokens
-        # Normalize back to "layers * tokens" equivalent
-        bytes_total = 2 * kv_heads * head_dim * cache_bytes * total_layers_tokens
+        global_layers = kv_layers // 2
+        sliding_layers = kv_layers - global_layers
+        # Gemma 4 global layers use K=V (keys reused as values) → 50% reduction on global cache
+        global_ratio = 0.5 if gemma4_kv else 1.0
+        effective_tokens = global_layers * num_tokens * global_ratio + sliding_layers * min(num_tokens, iswa_window)
+        bytes_total = 2 * kv_heads * head_dim * cache_bytes * effective_tokens
     else:
-        bytes_total = 2 * layers * kv_heads * head_dim * cache_bytes * num_tokens
+        bytes_total = 2 * kv_layers * kv_heads * head_dim * cache_bytes * num_tokens
     return bytes_total / (1024 * 1024)
 
 
@@ -901,6 +920,15 @@ def get_main_model_vram(running_models, valid_metrics):
         if clean_key in clean_path:
             iswa_window = window
             break
+    # Qwen 3.5/3.6 hybrid: only 25% of layers have KV cache (DeltaNet = linear attention)
+    effective_layers = None
+    for key, el in QWEN_HYBRID_LAYERS.items():
+        clean_key = re.sub(r'[-._]', '', key.lower())
+        if clean_key in clean_path:
+            effective_layers = el
+            break
+    # Gemma 4: global layers reuse keys as values → 50% KV reduction on global cache
+    gemma4_kv = iswa_window is not None and "gemma4" in path_lower
     # Get weights size
     weight_mb = active.get("model_file_mb", 0)
     if weight_mb == 0:
@@ -925,7 +953,7 @@ def get_main_model_vram(running_models, valid_metrics):
         # MLA: ~70 KB/token (compressed key/value + RoPE keys)
         cache_mb = 70.0 * ctx_size / (1024)
     else:
-        cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window)
+        cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, effective_layers, gemma4_kv)
     # Apply --cache-ram cap if set (limits KV cache on GPU, rest spills to DRAM)
     cache_ram_cap = active.get("cache_ram_mb", -1)
     if cache_ram_cap > 0:
