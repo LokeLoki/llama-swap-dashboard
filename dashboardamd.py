@@ -695,6 +695,18 @@ def short_model_name(model_path_or_id):
 
         return f"{family[0].upper()}{family[1:]}{param_str}"
 
+    # Handle models without "XB" param suffix in filename
+    # (e.g., Kimi-K2-Instruct-Q4_K_M.gguf, GLM-5.2-Instruct-Q4_K_M.gguf)
+    if family == 'kk':
+        return "Kk1"  # Kimi K2 = 1T total, 32B activated
+    if family == 'gl':
+        return "Gl5"  # GLM-5.2
+    if family == 'la':
+        # Distinguish S-2.1 (118B-A8B) vs XS-2.1 (33B-A3B)
+        if 'xs' in text:
+            return "La33a3"
+        return "La118a8"
+
     # Fallback: return original if pattern didn't match
     return model_path_or_id
 
