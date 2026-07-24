@@ -581,7 +581,7 @@ def short_model_name(model_path_or_id):
     elif 'glm' in text:
         family = 'gl'
     elif 'kimi' in text:
-        family = 'kk'
+        family = 'k'
     elif 'mixtral' in text:
         family = 'mx'
     elif 'yi' in text:
@@ -640,8 +640,8 @@ def short_model_name(model_path_or_id):
 
     # Handle models without "XB" or "XT" param suffix in filename
     # (e.g., Kimi-K2-Instruct-Q4_K_M.gguf, GLM-5.2-Instruct-Q4_K_M.gguf)
-    if family == 'kk':
-        return "Kk1Ta32"  # Kimi K2 = 1T total, 32B activated
+    if family == 'k':
+        return "K1Ta32"  # Kimi K2 = 1T total, 32B activated
     if family == 'gl':
         return "Gl744a40"  # GLM-5.2 = 744B total, 40B activated
     if family == 'la':
