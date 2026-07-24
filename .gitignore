@@ -5,9 +5,24 @@ Thumbs.db
 *.log
 venv/
 .venv/
+
+# Local workspace files — not part of the dashboard
 config.yaml
 models/
 llama-swap.exe
 *.exe
 *.txt
+*.conf
 router.ps1
+*.ps1
+dashboard.conf
+
+# Local batch scripts (not dashboard launchers)
+HOLD-VRAM.bat.bat
+RESTART.BAT.bat
+RPC-POOL.bat
+Start-Swap.bat
+benchmark_pp_decode.bat
+start-aux-manager.bat
+start_hermes.ps1
+swap-to-27i.bat
