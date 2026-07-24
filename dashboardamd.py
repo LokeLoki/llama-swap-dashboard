@@ -499,7 +499,7 @@ def fetch_running_models(host):
                 model_path = m_match.group(1)
             # Parse quant from model path
             model_quant = parse_quant_from_path(model_path)
-            # Parse --model file size from nvidia-smi or gguf header
+            # Parse --model file size from amd-smi or gguf header
             # We'll get file size from the path
             model_file_mb = 0
             if model_path:
@@ -1010,7 +1010,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     lines.append("")
 
     if not gpus:
-        lines.append(f"  {RED}nvidia-smi not available{RESET}")
+        lines.append(f"  {RED}amd-smi not available{RESET}")
         sys.stdout.write("\n".join(lines))
         sys.stdout.flush()
         return
