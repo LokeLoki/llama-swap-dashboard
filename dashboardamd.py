@@ -988,17 +988,16 @@ def _parse_yaml_models_simple(yaml_path):
 
 def get_active_model_identity(valid_metrics, config_yaml_path=None):
     """Get the active model name and quantization level.
-    Returns a tuple of (model_id, quant_label) or (None, None).
-    Caches results to avoid repeated file I/O."""
+    Returns a ModelIdentity or None."""
     if not valid_metrics:
-        return None, None
+        return None
     active_model = valid_metrics[-1].get("model")
     if not active_model:
-        return None, None
+        return None
     # Check cache
     cache = getattr(get_active_model_identity, "_cache", None)
-    if cache and cache["model"] == active_model:
-        return cache["model"], cache["quant"]
+    if cache and cache.model_id == active_model:
+        return cache
     # Resolve quant from config.yaml
     quant = None
     if config_yaml_path:
@@ -1006,9 +1005,9 @@ def get_active_model_identity(valid_metrics, config_yaml_path=None):
         gguf_path = model_map.get(active_model)
         if gguf_path:
             quant = parse_quant_from_path(gguf_path)
-    # Cache result
-    get_active_model_identity._cache = {"model": active_model, "quant": quant}
-    return active_model, quant
+    result = ModelIdentity(model_id=active_model, quant=quant)
+    get_active_model_identity._cache = result
+    return result
 
 
 def get_last_metrics(valid_metrics, count=1):
@@ -1238,7 +1237,7 @@ def render_main_model_decode(valid_metrics, sys_info):
     return lines, decode_tps
 
 
-def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, session_totals, model_id=None, model_quant=None, host=None, aux_port=None, running_models=None):
+def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, session_totals, identity=None, host=None, aux_port=None, running_models=None):
     """Render the dashboard."""
     sys.stdout.write("\033[H\033[0J")
     now = time.strftime("%H:%M:%S")
@@ -1305,8 +1304,8 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     if actual_model_path:
         short_name = short_model_name(actual_model_path)
         display_label = short_name
-        if model_quant:
-            display_label = f"{display_label} {model_quant}"
+        if identity and identity.quant:
+            display_label = f"{display_label} {identity.quant}"
         model_label = f"{display_label} ({host.split(':')[-1] if ':' in host else '8080'})"
     else:
         model_label = f"— ({host.split(':')[-1] if ':' in host else '8080'})"
@@ -1418,8 +1417,8 @@ def main():
         prev_model = current_model
 
         buckets = get_metrics_by_bucket(valid)
-        model_id, model_quant = get_active_model_identity(valid, config_yaml)
-        render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, model_id, model_quant, host=host, aux_port=aux_port, running_models=running_models)
+        identity = get_active_model_identity(valid, config_yaml)
+        render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models)
 
         # Fixed refresh interval — subtract work time to prevent drift
         elapsed = time.time() - loop_start
