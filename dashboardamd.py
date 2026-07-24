@@ -597,6 +597,82 @@ def fetch_running_models(host):
         return None
 
 
+def short_model_name(model_path_or_id):
+    """Generate a short model alias from a model path or ID.
+    Dynamic rules — no hardcoding:
+    - Family first letter(s) + param count (e.g., q27, b27, ge4)
+    - MoE: append MoE params (e.g., q35a3, g26a4, o35a3)
+    - Gemma E-variants: ge4, ge2, g12, g31
+    - DeepSeek R: dr14, dr33
+    Returns the short alias or the original if nothing matches."""
+    text = model_path_or_id.lower()
+    # Remove common suffixes that don't affect the name
+    text = re.sub(r'(-it|-chat|-instruct|-ud|-abliterated|-heretic|-uncensored|-qat|-code|-mt)$', '', text)
+
+    # Detect family (first meaningful word or known prefix)
+    family = ""
+    if 'gemma' in text or 'gemma4' in text or 'gemma2' in text:
+        family = 'g'
+    elif 'qwen' in text:
+        family = 'q'
+    elif 'bonsai' in text:
+        family = 'b'
+    elif 'ornith' in text:
+        family = 'o'
+    elif 'deepseek' in text:
+        family = 'd'
+    elif 'llama' in text:
+        family = 'l'
+    elif 'mixtral' in text:
+        family = 'mx'
+    elif 'yi' in text:
+        family = 'yi'
+    elif 'commandr' in text or 'command-r' in text:
+        family = 'c'
+    elif 'phi' in text:
+        family = 'phi'
+    elif 'mistral' in text:
+        family = 'm'
+    elif 'nemotron' in text:
+        family = 'n'
+    elif 'internlm' in text:
+        family = 'i'
+    elif 'commandaura' in text or 'command-aura' in text:
+        family = 'ca'
+    elif 'aya' in text:
+        family = 'aya'
+
+    if not family:
+        # Fallback: first letter of first word
+        match = re.match(r'^([a-z]+)', text.split('/')[-1])
+        if match:
+            family = match.group(1)[:2]
+
+    # Detect Gemma E-variant (E4B, E2B) — these use 'e' prefix
+    e_var = re.search(r'e(\d+)b', text)
+    if e_var and family == 'g':
+        return f"ge{e_var.group(1)}"
+
+    # Detect total params XB pattern (e.g., 27B, 35B, 4B, 122B)
+    params = re.search(r'(\d+)b', text)
+    if params:
+        param_str = params.group(1)
+
+        # Detect MoE AxB pattern (e.g., A3B, A10B, A17B)
+        moe = re.search(r'a(\d+)b', text)
+        if moe:
+            return f"{family}{param_str}a{moe.group(1)}"
+
+        # DeepSeek R variants
+        if family == 'd' and 'r' in text[:15]:
+            return f"dr{param_str}"
+
+        return f"{family}{param_str}"
+
+    # Fallback: return original if pattern didn't match
+    return model_path_or_id
+
+
 def find_model_arch(model_path, model_quant):
     """Find the architecture params for a model by matching its path.
     Returns (layers, kv_heads, head_dim) or None."""
@@ -1127,7 +1203,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         main_vram_str = f"{main_vram_mb / 1024:.1f} GB" if main_vram_mb > 0 else None
     # Build model label
     if model_id:
-        model_label = model_id
+        model_label = short_model_name(model_id)
         if model_quant:
             model_label = f"{model_label} {model_quant}"
         model_label = f"{model_label} ({host.split(':')[-1] if ':' in host else '8080'})"
