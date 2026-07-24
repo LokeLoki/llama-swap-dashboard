@@ -98,7 +98,7 @@ cache = 2 × layers × kv_heads × head_dim × cache_bytes × tokens
 
 The cache bytes come from the model's `-ctk` flag or default to F16 (2.0 bytes) when not set.
 
-**Caveats:** The formula assumes linear KV cache growth up to max context. Models with hybrid sliding window attention (Gemma 4, Qwen3.6) will show a conservative ceiling — actual cache may be lower once context exceeds the sliding window limit, as those layers prune older tokens. This is intentional: the dashboard reports maximum possible VRAM for safe capacity planning.
+**Caveats:** The formula assumes linear KV cache growth up to max context. Models with hybrid sliding window attention (Gemma 4, Qwen3.6) will show a conservative ceiling — actual cache may be lower once context exceeds the sliding window limit, as those layers prune older tokens.
 
 ## Keyboard
 
