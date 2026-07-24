@@ -1132,12 +1132,16 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     else:
         main_vram_mb = sum(gpu["mem_used_mb"] for gpu in gpus if gpu["gpu_util_pct"] >= 5) if gpus else 0
         main_vram_str = f"{main_vram_mb / 1024:.1f} GB" if main_vram_mb > 0 else None
-    # Build model label
-    if model_id:
-        model_label = short_model_name(model_id)
+    # Build model label from actual model path (not config key)
+    actual_model_path = None
+    if running_models:
+        actual_model_path = running_models[0].get("model_path")
+    if actual_model_path:
+        short_name = short_model_name(actual_model_path)
+        display_label = short_name
         if model_quant:
-            model_label = f"{model_label} {model_quant}"
-        model_label = f"{model_label} ({host.split(':')[-1] if ':' in host else '8080'})"
+            display_label = f"{display_label} {model_quant}"
+        model_label = f"{display_label} ({host.split(':')[-1] if ':' in host else '8080'})"
     else:
         model_label = f"— ({host.split(':')[-1] if ':' in host else '8080'})"
     # Inference state
