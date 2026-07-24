@@ -917,7 +917,8 @@ def render_prompt_log(valid_metrics):
     lines.append(f"  {BOLD}{DIM}{'─' * 56}{RESET}")
     for req in reversed(recent):
         t = req.get("tokens", {})
-        model = req.get("model", "—")
+        raw_model = req.get("model", "—")
+        model = short_model_name(raw_model) if raw_model != "—" else "—"
         prompt_tps = t.get("prompt_per_second", 0)
         decode_tps = t.get("tokens_per_second", 0)
         input_tok = t.get("input_tokens", 0)
