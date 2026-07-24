@@ -82,7 +82,7 @@ python dashboardnv.py --help
 - **GPU Status** — Real-time temp, VRAM usage, utilization, power draw, and fan speed for every GPU detected. Works with 1 GPU or 8+ — scales automatically to whatever hardware you have.
 - **System RAM** — Host memory usage from llama-swap
 - **Model VRAM** — Clean additive estimate: model weights + KV cache
-|- **t/s by Context Size** — Peak prompt and decode speed per 10K token bucket, filtered to uncached requests with ≥5 output tokens
+- **Prefill Chart** — Peak prompt and decode speed per 10K token bucket, filtered to uncached requests with ≥5 output tokens
 - **Last Prompts** — Rolling log of the 3 most recent inference requests with decode speed, prompt speed, input/output tokens, and cache hit count
 - **Session Tokens** — Cumulative input, output, and request count for the active model
 
