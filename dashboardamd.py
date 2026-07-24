@@ -12,6 +12,7 @@ Options:
     --refresh SECS    Refresh interval in seconds (default: 2)
 """
 
+import dataclasses
 import json
 import os
 import random
@@ -21,6 +22,43 @@ import sys
 import time
 import urllib.request
 from datetime import datetime
+
+@dataclasses.dataclass
+class GpuStats:
+    id: int
+    name: str
+    temp_c: int
+    gpu_util_pct: int
+    mem_used_mb: int
+    mem_total_mb: int
+    fan_pct: int
+    power_w: float
+
+@dataclasses.dataclass
+class SystemInfo:
+    mem_used_mb: int
+    mem_total_mb: int
+
+@dataclasses.dataclass
+class AuxiliaryModel:
+    name: str
+    size_vram_mb: float
+    context_length: int
+    decode_tps: float
+
+@dataclasses.dataclass
+class MainModelVram:
+    total_mb: float
+    weight_mb: float
+    mmproj_mb: float
+    draft_mb: float
+    cache_mb: float
+    cache_type: str
+
+@dataclasses.dataclass
+class ModelIdentity:
+    model_id: str
+    quant: str
 
 DEFAULT_HOST = "http://localhost:8080"
 DEFAULT_REFRESH = 2
@@ -389,16 +427,16 @@ def get_amd_smi(gpu_names=None):
             if fan_val and str(fan_val).upper() != "N/A":
                 fan = int(str(fan_val).rstrip("%"))
 
-            gpus.append({
-                "id": idx,
-                "name": short_gpu_name(gpu_names.get(idx, f"AMD GPU {idx}")),
-                "temp_c": temp,
-                "gpu_util_pct": gfx_activity,
-                "mem_used_mb": mem_used_mb,
-                "mem_total_mb": mem_total_mb,
-                "fan_pct": fan,
-                "power_w": power,
-            })
+            gpus.append(GpuStats(
+                id=idx,
+                name=short_gpu_name(gpu_names.get(idx, f"AMD GPU {idx}")),
+                temp_c=temp,
+                gpu_util_pct=gfx_activity,
+                mem_used_mb=mem_used_mb,
+                mem_total_mb=mem_total_mb,
+                fan_pct=fan,
+                power_w=power,
+            ))
         return gpus
     except Exception:
         return None
@@ -447,10 +485,10 @@ def get_llama_swap_stats(api_url):
         sys_stats = data.get("sys_stats", [])
         if sys_stats:
             latest = sys_stats[-1]
-            return {
-                "mem_used_mb": latest.get("mem_used_mb", 0),
-                "mem_total_mb": latest.get("mem_total_mb", 0),
-            }
+            return SystemInfo(
+                mem_used_mb=latest.get("mem_used_mb", 0),
+                mem_total_mb=latest.get("mem_total_mb", 0),
+            )
     except Exception:
         pass
     return None
@@ -488,12 +526,12 @@ def get_auxiliary_model(aux_port=DEFAULT_AUX_PORT):
         else:
             decode_tps = get_auxiliary_model._cache.get("decode_tps", 0)
 
-        return {
-            "name": m.get("name", "—"),
-            "size_vram_mb": m.get("size_vram", 0) / (1024 * 1024),
-            "context_length": m.get("context_length", 0),
-            "decode_tps": decode_tps,
-        }
+        return AuxiliaryModel(
+            name=m.get("name", "—"),
+            size_vram_mb=m.get("size_vram", 0) / (1024 * 1024),
+            context_length=m.get("context_length", 0),
+            decode_tps=decode_tps,
+        )
     except Exception:
         pass
     return None
@@ -760,7 +798,7 @@ def get_inference_state(valid_metrics, gpus):
     Returns 'active' or 'idle'."""
     if not valid_metrics or not gpus:
         return "idle"
-    active_gpus = [g for g in gpus if g["gpu_util_pct"] > 5]
+    active_gpus = [g for g in gpus if g.gpu_util_pct > 5]
     return "active" if active_gpus else "idle"
 
 
@@ -786,7 +824,7 @@ def get_aux_state(aux_info, aux_port):
 
 def get_main_model_vram(running_models, valid_metrics):
     """Calculate main model VRAM: weights + mmproj + draft + KV cache (capped by --cache-ram).
-    Returns (vram_mb, weight_mb, mmproj_mb, draft_mb, cache_mb, cache_type_str) or None."""
+    Returns MainModelVram or None."""
     if not running_models:
         return None
     # Find active model
@@ -827,7 +865,14 @@ def get_main_model_vram(running_models, valid_metrics):
     # Build cache type string for display
     ct_display = active["cache_type"] or "f16"
     total_vram_mb = weight_mb + mmproj_mb + draft_mb + cache_mb
-    return (total_vram_mb, weight_mb, mmproj_mb, draft_mb, cache_mb, ct_display)
+    return MainModelVram(
+        total_mb=total_vram_mb,
+        weight_mb=weight_mb,
+        mmproj_mb=mmproj_mb,
+        draft_mb=draft_mb,
+        cache_mb=cache_mb,
+        cache_type=ct_display,
+    )
 
 
 def get_aux_vram(aux_info, aux_port):
@@ -838,17 +883,17 @@ def get_aux_vram(aux_info, aux_port):
     Caches result to avoid repeated API calls."""
     if not aux_info:
         return None
-    weight_mb = aux_info.get("size_vram_mb", 0)
+    weight_mb = aux_info.size_vram_mb
     if weight_mb == 0:
         return None
     # Check cache
     cache = getattr(get_aux_vram, "_cache", None)
-    if cache and cache["name"] == aux_info["name"]:
+    if cache and cache["name"] == aux_info.name:
         return cache["total_mb"]
     # Try to get architecture from Ollama /api/show
     aux_host = f"http://127.0.0.1:{aux_port}"
     try:
-        show_data = json.dumps({"name": aux_info["name"]}).encode()
+        show_data = json.dumps({"name": aux_info.name}).encode()
         show_req = urllib.request.Request(f"{aux_host}/api/show", data=show_data, method="POST")
         with urllib.request.urlopen(show_req, timeout=2) as resp:
             show = json.loads(resp.read())
@@ -866,10 +911,10 @@ def get_aux_vram(aux_info, aux_port):
         if layers and kv_heads and head_dim:
             # Ollama KV cache defaults to q8_0; user can set OLLAMA_KV_CACHE_TYPE
             cache_bytes = 1.0
-            ctx = aux_info.get("context_length", 0)
+            ctx = aux_info.context_length
             cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx)
             total = weight_mb + cache_mb
-            get_aux_vram._cache = {"name": aux_info["name"], "total_mb": total}
+            get_aux_vram._cache = {"name": aux_info.name, "total_mb": total}
             return total
     except Exception:
         pass
@@ -1183,8 +1228,8 @@ def render_main_model_decode(valid_metrics, sys_info):
     decode_tps = latest.get("tokens", {}).get("tokens_per_second", 0) if latest else 0
 
     if sys_info:
-        sys_mem_used = sys_info["mem_used_mb"]
-        sys_mem_total = sys_info["mem_total_mb"]
+        sys_mem_used = sys_info.mem_used_mb
+        sys_mem_total = sys_info.mem_total_mb
         sys_mem_pct = (sys_mem_used / sys_mem_total * 100) if sys_mem_total else 0
         sys_bar = util_bar(sys_mem_pct, 16)
         sys_mem_str = f"{sys_mem_used / 1024:.1f} / {sys_mem_total / 1024:.0f} GB ({sys_mem_pct:.0f}%)"
@@ -1211,12 +1256,12 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         return
 
     for i, gpu in enumerate(gpus):
-        temp = gpu["temp_c"]
-        mem_used = gpu["mem_used_mb"]
-        mem_total = gpu["mem_total_mb"]
-        util = gpu["gpu_util_pct"]
-        power = gpu["power_w"]
-        fan = gpu["fan_pct"]
+        temp = gpu.temp_c
+        mem_used = gpu.mem_used_mb
+        mem_total = gpu.mem_total_mb
+        util = gpu.gpu_util_pct
+        power = gpu.power_w
+        fan = gpu.fan_pct
         mem_pct = (mem_used / mem_total * 100) if mem_total else 0
 
         if util >= 5:
@@ -1230,7 +1275,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         util_bar_str = util_bar(util, 14)
         mem_str = f"{mem_used / 1024:.1f} / {mem_total / 1024:.0f} GB"
 
-        lines.append(f"  {BOLD}{WHITE}[GPU {gpu['id']}] {gpu['name']}{RESET}")
+        lines.append(f"  {BOLD}{WHITE}[GPU {gpu.id}] {gpu.name}{RESET}")
         lines.append(f"  {status}  {DIM}{color_temp(temp)}{temp}°C{RESET}")
         lines.append(f"  {DIM}VRAM:{RESET} {vram_bar} {mem_str}")
         lines.append(f"  {DIM}UTIL:{RESET} {status_color}{util_bar_str}{RESET} {util}%")
@@ -1249,10 +1294,9 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     # Calculate main model VRAM: weights + KV cache (additive estimate)
     main_vram_info = get_main_model_vram(running_models, valid_metrics) if running_models else None
     if main_vram_info:
-        total_mb, weight_mb, mmproj_mb, draft_mb, cache_mb, cache_type = main_vram_info
-        main_vram_str = f"{total_mb / 1024:.1f} GB"
+        main_vram_str = f"{main_vram_info.total_mb / 1024:.1f} GB"
     else:
-        main_vram_mb = sum(gpu["mem_used_mb"] for gpu in gpus if gpu["gpu_util_pct"] >= 5) if gpus else 0
+        main_vram_mb = sum(gpu.mem_used_mb for gpu in gpus if gpu.gpu_util_pct >= 5) if gpus else 0
         main_vram_str = f"{main_vram_mb / 1024:.1f} GB" if main_vram_mb > 0 else None
     # Build model label from actual model path (not config key)
     actual_model_path = None
@@ -1270,10 +1314,10 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     main_state = get_inference_state(valid_metrics, gpus) if valid_metrics else None
     lines.append(_format_metric_line(model_label, main_vram_str, decode_tps))
     if aux_info:
-        aux_name = aux_info["name"]
+        aux_name = aux_info.name
         aux_short = aux_name.split(":")[0]
         aux_total_mb = get_aux_vram(aux_info, aux_port)
-        aux_tps = aux_info.get("decode_tps", 0)
+        aux_tps = aux_info.decode_tps
         aux_vram_str = f"{aux_total_mb / 1024:.1f} GB"
         aux_state = get_aux_state(aux_info, aux_port)
         lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", aux_vram_str, aux_tps))
