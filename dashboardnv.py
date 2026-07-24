@@ -506,25 +506,20 @@ def fetch_running_models(host):
                     pass
             # Parse spec/drafting flags
             has_spec = "--spec-type" in cmd
-            # Parse additional flags
-            n_ctx_match = re.search(r'\s-n\s+(\d+)', cmd)
-            n_ctx = int(n_ctx_match.group(1)) if n_ctx_match else None
-            ngl_match = re.search(r'-ngl\s+(\d+)', cmd)
-            ngl = int(ngl_match.group(1)) if ngl_match else None
-            ts_match = re.search(r'-ts\s+([\d.,]+)', cmd)
-            ts = ts_match.group(1) if ts_match else None
-            batch_match = re.search(r'\s-b\s+(\d+)', cmd)
-            batch = int(batch_match.group(1)) if batch_match else None
-            ubatch_match = re.search(r'-ub\s+(\d+)', cmd)
-            ubatch = int(ubatch_match.group(1)) if ubatch_match else None
-            rb_match = re.search(r'--reasoning-budget\s+(\d+)', cmd)
-            reasoning_budget = int(rb_match.group(1)) if rb_match else None
-            csn_match = re.search(r'--spec-draft-n-max\s+(\d+)', cmd)
-            spec_draft_n = int(csn_match.group(1)) if csn_match else None
-            has_context_shift = "--context-shift" in cmd
-            has_fa = "-fa on" in cmd
-            has_mmap = "--mmap" in cmd
-            has_mlock = "--mlock" in cmd
+            # Parse ALL flags generically from cmd
+            all_flags = {}
+            for flag_match in re.finditer(r'(?:^|\s)(--[a-zA-Z0-9_-]+|--[a-zA-Z0-9_-]+(?:\s+[^\s"]+)|-[a-zA-Z]\s+([^\s"]+))', cmd):
+                flag_str = flag_match.group(1).strip()
+                parts = flag_str.split(None, 1)
+                flag_name = parts[0]
+                flag_value = parts[1] if len(parts) > 1 else None
+                if flag_name in ('llama-server.exe', 'llama-server'):
+                    continue
+                if flag_value and flag_value.startswith('"') and flag_value.endswith('"'):
+                    flag_value = flag_value.strip('"')
+                if flag_value and flag_value.endswith('.gguf'):
+                    flag_value = os.path.basename(flag_value)
+                all_flags[flag_name] = flag_value
             running.append({
                 "model_id": item.get("model", ""),
                 "state": item.get("state", ""),
@@ -541,17 +536,7 @@ def fetch_running_models(host):
                 "draft_file_mb": draft_file_mb,
                 "cache_ram_mb": cache_ram_mb,
                 "parallel": parallel,
-                "n_ctx": n_ctx,
-                "ngl": ngl,
-                "tensor_split": ts,
-                "batch": batch,
-                "ubatch": ubatch,
-                "reasoning_budget": reasoning_budget,
-                "spec_draft_n_max": spec_draft_n,
-                "context_shift": has_context_shift,
-                "flash_attention": has_fa,
-                "mmap": has_mmap,
-                "mlock": has_mlock,
+                "all_flags": all_flags,
             })
         return running
     except Exception:
@@ -1213,49 +1198,29 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     lines.append(f" {BOLD}{CYAN}{'═' * 56}{RESET}")
     lines.append(token_line)
 
-    # Subtle footer: full model path + key flags
+    # Subtle footer: full model path + all flags
     if running_models and running_models[0].get("model_path"):
         rm = running_models[0]
         gguf = os.path.basename(rm["model_path"])
         lines.append(f"  {DIM}└─ {gguf}{RESET}")
-        # Line 2: core context + cache flags
-        line2_parts = [f"-c {rm.get('max_context', '')}"]
-        if rm.get("cache_type"):
-            line2_parts.append(f"-ctk {rm['cache_type']}")
-        if rm.get("cache_ram_mb", -1) > 0:
-            line2_parts.append(f"--cache-ram {rm['cache_ram_mb']}")
-        if rm.get("n_ctx"):
-            line2_parts.append(f"-n {rm['n_ctx']}")
-        if rm.get("ngl"):
-            line2_parts.append(f"-ngl {rm['ngl']}")
-        if rm.get("tensor_split"):
-            line2_parts.append(f"-ts {rm['tensor_split']}")
-        lines.append(f"  {DIM}   {' '.join(line2_parts)}{RESET}")
-        # Line 3: inference + memory flags
-        line3_parts = []
-        if rm.get("batch"):
-            line3_parts.append(f"-b {rm['batch']}")
-        if rm.get("ubatch"):
-            line3_parts.append(f"-ub {rm['ubatch']}")
-        if rm.get("reasoning_budget"):
-            line3_parts.append(f"--rb {rm['reasoning_budget']}")
-        if rm.get("flash_attention"):
-            line3_parts.append("-fa")
-        if rm.get("context_shift"):
-            line3_parts.append("--cs")
-        if rm.get("has_spec"):
-            line3_parts.append("--spec")
-        if rm.get("spec_draft_n_max"):
-            line3_parts.append(f"--sdn {rm['spec_draft_n_max']}")
-        if rm.get("mmproj_path"):
-            line3_parts.append(f"--mmproj {os.path.basename(rm['mmproj_path'])}")
-        if rm.get("draft_path"):
-            line3_parts.append(f"--draft {os.path.basename(rm['draft_path'])}")
-        if rm.get("mmap"):
-            line3_parts.append("--mmap")
-        if rm.get("mlock"):
-            line3_parts.append("--mlock")
-        lines.append(f"  {DIM}   {' '.join(line3_parts)}{RESET}")
+        # Build flag strings from all_flags
+        all_f = rm.get("all_flags", {})
+        flag_parts = []
+        for k, v in all_f.items():
+            if k == "-m":
+                continue  # already shown as GGUF name
+            if v is not None:
+                flag_parts.append(f"{k} {v}")
+            else:
+                flag_parts.append(k)
+        # Split into two lines of ~70 chars each
+        mid = len(flag_parts) // 2
+        line1 = " ".join(flag_parts[:mid])
+        line2 = " ".join(flag_parts[mid:])
+        if line1:
+            lines.append(f"  {DIM}   {line1}{RESET}")
+        if line2:
+            lines.append(f"  {DIM}   {line2}{RESET}")
 
     lines.append(f" {DIM}Refresh: {refresh_interval}s | Ctrl+C to quit")
     lines.append(f" {DIM}GPU UTIL >5% = active")
