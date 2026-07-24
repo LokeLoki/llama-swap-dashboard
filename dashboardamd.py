@@ -1104,20 +1104,8 @@ def _fmt_num(n):
     return str(n)
 
 
-def _state_label(state):
-    """Return a state label string.
-    Active states rotate randomly every ~5 polls. Idle is always dots."""
-    if state != "active":
-        return f" {DIM}..........{RESET}"
-    # Rotate active label every 5 polls (every ~10s at 2s refresh)
-    _state_label._counter = getattr(_state_label, "_counter", 0) + 1
-    if _state_label._counter % 5 == 1:
-        _state_label._current = random.choice(ACTIVE_STATES)
-    return f" {ITALIC}{DIM}{getattr(_state_label, '_current', ACTIVE_STATES[0])}{RESET}"
-
-
-def _format_metric_line(label, vram_str, decode_tps, state=None, align_visible=40):
-    """Format a single metric line with aligned decode values and optional state."""
+def _format_metric_line(label, vram_str, decode_tps, align_visible=40):
+    """Format a single metric line with aligned decode values."""
     if decode_tps > 0:
         decode_str = f"{DIM}decode: {RESET}{LIGHT_ORANGE}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET}"
     else:
@@ -1126,11 +1114,8 @@ def _format_metric_line(label, vram_str, decode_tps, state=None, align_visible=4
         prefix = f"{BOLD}{label}{RESET} {SOFT_WHITE}{vram_str}{RESET}"
     else:
         prefix = f"{BOLD}{label}{RESET}"
-    state_str = _state_label(state)
-    # Pad based on visible characters including state
-    full_prefix = prefix + state_str
-    pad = max(1, align_visible - _visible_len(full_prefix))
-    return f"  {full_prefix}{' ' * pad}{decode_str}"
+    pad = max(1, align_visible - _visible_len(prefix))
+    return f"  {prefix}{' ' * pad}{decode_str}"
 
 
 def render_main_model_decode(valid_metrics, sys_info):
@@ -1227,7 +1212,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         model_label = f"— ({host.split(':')[-1] if ':' in host else '8080'})"
     # Inference state
     main_state = get_inference_state(valid_metrics, gpus) if valid_metrics else None
-    lines.append(_format_metric_line(model_label, main_vram_str, decode_tps, state=main_state))
+    lines.append(_format_metric_line(model_label, main_vram_str, decode_tps))
     if aux_info:
         aux_name = aux_info["name"]
         aux_short = aux_name.split(":")[0]
@@ -1235,7 +1220,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         aux_tps = aux_info.get("decode_tps", 0)
         aux_vram_str = f"{aux_total_mb / 1024:.1f} GB"
         aux_state = get_aux_state(aux_info, aux_port)
-        lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", aux_vram_str, aux_tps, state=aux_state))
+        lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", aux_vram_str, aux_tps))
     else:
         lines.append(f"  {BOLD}Ollama Aux ({aux_port}){RESET}  {DIM}offline{RESET}")
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
