@@ -364,7 +364,7 @@ def get_amd_smi(gpu_names=None):
                 temp = int(str(edge_val).replace("°C", "").strip())
 
             # Memory usage
-            mem_usage = gpu.get("mem_usage", {})
+            mem_usage = gpu.get("mem_usage") or {}
             mem_used_mb = int(str(mem_usage.get("USED_VRAM", 0)).replace("MB", "").strip())
             mem_total_mb = int(str(mem_usage.get("TOTAL_VRAM", 0)).replace("MB", "").strip())
 
