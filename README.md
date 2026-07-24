@@ -23,8 +23,7 @@ Double-click the script you need, or run from a terminal:
 
 ### Windows
 
-- Double-click `dashboardnv.py` — NVIDIA
-- Double-click `dashboardamd.py` — AMD
+Double-click `dashboardnv.py` (NVIDIA) or `dashboardamd.py` (AMD).
 
 ### Linux / macOS
 
@@ -37,6 +36,12 @@ python dashboardamd.py
 ```
 
 Place the dashboard scripts in the same folder as your llama-swap `config.yaml` (optional — required for model name, quantization, and VRAM calculation features).
+
+## Supported Models
+
+Accurate VRAM estimation with built-in architecture tables for: **Gemma family**, **Qwen family**, **Llama family**, **GLM 5.2**, **Kimi K2**, **Laguna 2.1**, **DeepSeek**, **Ornith**, **Bonsai**, **Mixtral**, and more.
+
+Models not in the table fall back to safe default estimates — no crashes, no wrong numbers. Add your own by editing `MODEL_ARCHITECTURES` in the script.
 
 The dashboard creates its own `dashboard.conf` file automatically on first run. You don't need to edit or touch your `config.yaml` — the dashboard just reads it.
 
@@ -85,7 +90,7 @@ python dashboardnv.py --help
 
 The dashboard estimates total VRAM usage by combining model weights with a calculated KV cache size — no guessing.
 
-It works by looking up each model's architecture (layers, KV heads, head dimension) in a built-in table covering Qwen, Llama, Gemma, DeepSeek, and Ornith families. Then it multiplies:
+It works by looking up each model's architecture (layers, KV heads, head dimension) in a built-in table covering Qwen, Llama, Gemma, DeepSeek, Kimi K2, GLM 5.2, Laguna, Ornith, Bonsai, Mixtral, and more families. Then it multiplies:
 
 ```
 cache = 2 × layers × kv_heads × head_dim × cache_bytes × tokens
