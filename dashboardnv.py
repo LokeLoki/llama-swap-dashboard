@@ -462,6 +462,28 @@ def fetch_running_models(host):
                     max_context = int(ctx_match.group(1))
                 except ValueError:
                     pass
+            # Parse --model-draft path from cmd
+            draft_path = ""
+            draft_match = re.search(r'--model-draft\s+"([^"]+\.gguf)"', cmd)
+            if draft_match:
+                draft_path = draft_match.group(1)
+            # Get draft file size
+            draft_file_mb = 0
+            if draft_path:
+                try:
+                    draft_file_mb = os.path.getsize(draft_path) / (1024 * 1024)
+                except OSError:
+                    pass
+            # Parse --parallel (number of server slots)
+            parallel = 1
+            np_match = re.search(r'(?<!\w)-np\s+(\d+)', cmd)
+            if not np_match:
+                np_match = re.search(r'--parallel\s+(\d+)', cmd)
+            if np_match:
+                try:
+                    parallel = int(np_match.group(1))
+                except ValueError:
+                    pass
             # Parse spec/drafting flags
             has_spec = "--spec-type" in cmd
             running.append({
@@ -474,6 +496,9 @@ def fetch_running_models(host):
                 "cache_type": cache_type,
                 "max_context": max_context,
                 "has_spec": has_spec,
+                "draft_path": draft_path,
+                "draft_file_mb": draft_file_mb,
+                "parallel": parallel,
             })
         return running
     except Exception:
@@ -546,8 +571,9 @@ def get_aux_state(aux_info, aux_port):
 
 
 def get_main_model_vram(running_models, valid_metrics):
-    """Calculate main model VRAM: weights + KV cache estimate.
-    Returns (vram_mb, weight_mb, cache_mb, cache_type_str) or None."""
+    """Calculate main model VRAM: weights + draft + KV cache reserve.
+    Uses --ctx-size for the full KV cache reservation (not active tokens).
+    Returns (vram_mb, weight_mb, draft_mb, cache_mb, cache_type_str) or None."""
     if not running_models:
         return None
     # Find active model
@@ -564,24 +590,25 @@ def get_main_model_vram(running_models, valid_metrics):
     weight_mb = active.get("model_file_mb", 0)
     if weight_mb == 0:
         return None
-    # Get current context tokens from latest valid metric
-    if valid_metrics:
-        latest = valid_metrics[-1]
-        # Use input_tokens + cache_tokens for actual context in use
-        input_tokens = latest.get("tokens", {}).get("input_tokens", 0)
-        cache_tokens = latest.get("tokens", {}).get("cache_tokens", 0)
-        # Total context = cache_tokens (persistent) + input_tokens (new)
-        current_tokens = cache_tokens + input_tokens
-    else:
-        current_tokens = 0
+    # Get draft model weight size (if --model-draft is set)
+    draft_mb = active.get("draft_file_mb", 0)
+    # Get reserved context size from --ctx-size (-c flag)
+    ctx_size = active.get("max_context", 0)
+    if ctx_size == 0:
+        # Fallback: use active tokens from metrics if ctx-size not in cmd
+        if valid_metrics:
+            latest = valid_metrics[-1]
+            input_tokens = latest.get("tokens", {}).get("input_tokens", 0)
+            cache_tokens = latest.get("tokens", {}).get("cache_tokens", 0)
+            ctx_size = cache_tokens + input_tokens
     # Get cache bytes
     cache_bytes = get_cache_bytes(active["cache_type"], active["model_quant"])
-    # Calculate cache
-    cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, current_tokens)
+    # Calculate reserved KV cache (full --ctx-size budget)
+    cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size)
     # Build cache type string for display
     ct_display = active["cache_type"] or active["model_quant"] or "q4_0"
-    total_vram_mb = weight_mb + cache_mb
-    return (total_vram_mb, weight_mb, cache_mb, ct_display)
+    total_vram_mb = weight_mb + draft_mb + cache_mb
+    return (total_vram_mb, weight_mb, draft_mb, cache_mb, ct_display)
 
 
 def get_aux_vram(aux_info, aux_port):
@@ -996,7 +1023,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     # Calculate main model VRAM: weights + KV cache (additive estimate)
     main_vram_info = get_main_model_vram(running_models, valid_metrics) if running_models else None
     if main_vram_info:
-        total_mb, weight_mb, cache_mb, cache_type = main_vram_info
+        total_mb, weight_mb, draft_mb, cache_mb, cache_type = main_vram_info
         main_vram_str = f"{total_mb / 1024:.1f} GB"
     else:
         main_vram_mb = sum(gpu["mem_used_mb"] for gpu in gpus if gpu["gpu_util_pct"] >= 5) if gpus else 0
