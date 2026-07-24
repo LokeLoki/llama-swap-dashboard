@@ -1124,7 +1124,7 @@ def get_metrics_by_bucket(valid_metrics):
                 if existing is None or dps > existing["best_d"]:
                     bucket_vals[label] = {
                         "bucket_key": mn,
-                        "label": input_tok,
+                        "label": seq_len,
                         "prompt_per_second": pps,
                         "tokens_per_second": dps,
                         "best_d": dps,
