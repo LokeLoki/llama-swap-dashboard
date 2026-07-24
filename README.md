@@ -88,17 +88,22 @@ python dashboardnv.py --help
 
 ## Model VRAM Calculation (EXPERIMENTAL)
 
-The dashboard estimates total VRAM usage by combining model weights with a calculated KV cache size. When multimodal (`--mmproj`) or speculative decoding (`--model-draft` / DFlash / MTP) are used, the exact file sizes of those models are included in the calculation too. The `--cache-ram` flag is respected — KV cache is capped to the specified limit when set, preventing overestimation when cache spills to DRAM.
+The dashboard estimates total VRAM usage by combining model weights with a calculated KV cache size. When multimodal (`--mmproj`) or speculative decoding (`--model-draft` / MTP) are used, the exact file sizes of those models are included too. The `--cache-ram` flag is respected — KV cache is capped to the specified limit when set.
 
-It works by looking up each model's architecture (layers, KV heads, head dimension) in a built-in table covering Qwen, Llama, Gemma, DeepSeek, Kimi K2, GLM 5.2, Laguna, Ornith, Bonsai, Mixtral, and more. Then it multiplies:
+The core formula starts with a model's architecture (layers, KV heads, head dimension) from a built-in table, then multiplies:
 
 ```
 cache = 2 × layers × kv_heads × head_dim × cache_bytes × tokens
 ```
 
-The cache bytes come from the model's `-ctk` flag or default to F16 (2.0 bytes) when not set.
+This estimate is adjusted for model-specific behaviors:
 
-**Caveats:** The formula assumes linear KV cache growth up to max context. Models with hybrid sliding window attention (Gemma 4, Qwen3.6) will show a conservative ceiling — actual cache may be lower once context exceeds the sliding window limit, as those layers prune older tokens.
+- **Qwen 3.x / DeltaNet** — Effective layers are reduced by 4× to account for DeltaNet's recurrent state design
+- **Gemma** — Sliding window attention reduces cache for local layers; Gemma 4 halves global layer cache when E2B/E4B heads are active
+- **DeepSeek / Kimi (MLA)** — Uses a flat ~70 KB/token estimate at FP16/BF16, scaled by quantization (q8_0 halves it). Distill models use standard GQA instead
+- **MTP / Speculative Decoding** — Bundled MTP adds minimal overhead (single-layer per head). Separate draft models use the full formula. MLA MTP shares the main cache
+
+**Caveats:** The formula estimates maximum cache at full context. Models with hybrid sliding window attention may use less once context exceeds the sliding window limit.
 
 ## Keyboard
 
