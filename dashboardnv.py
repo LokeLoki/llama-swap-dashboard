@@ -906,19 +906,30 @@ def get_metrics_by_bucket(valid_metrics):
 
 # ── Rendering ──────────────────────────────────────────
 
-def render_prompt_log(valid_metrics):
+def render_prompt_log(valid_metrics, running_models=None):
     """Render a rolling log of the last 3 prompts."""
     lines = []
     recent = get_last_metrics(valid_metrics, 3)
     if not recent:
         return lines
 
+    # Build model_id -> model_path mapping from running_models
+    path_map = {}
+    if running_models:
+        for rm in running_models:
+            mid = rm.get("model_id", "")
+            mp = rm.get("model_path", "")
+            if mid and mp:
+                path_map[mid] = mp
+
     lines.append(f"  {BOLD}Last Prompts{RESET}")
     lines.append(f"  {BOLD}{DIM}{'─' * 56}{RESET}")
     for req in reversed(recent):
         t = req.get("tokens", {})
         raw_model = req.get("model", "—")
-        model = short_model_name(raw_model) if raw_model != "—" else "—"
+        # Map config key to GGUF path, then shorten
+        display_path = path_map.get(raw_model, raw_model)
+        model = short_model_name(display_path) if raw_model != "—" else "—"
         prompt_tps = t.get("prompt_per_second", 0)
         decode_tps = t.get("tokens_per_second", 0)
         input_tok = t.get("input_tokens", 0)
@@ -1169,7 +1180,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     lines.append("")
 
     # Last 3 prompts rolling log
-    lines.extend(render_prompt_log(valid_metrics))
+    lines.extend(render_prompt_log(valid_metrics, running_models))
     lines.append("")
 
     # Session token totals — passed in, no O(n) scan
