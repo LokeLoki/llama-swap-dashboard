@@ -694,6 +694,7 @@ def fetch_running_models(host):
                 "cache_type": cache_type,
                 "max_context": max_context,
                 "has_spec": "--spec-type" in cmd,
+                "spec_draft_n_max": _parse_spec_draft_n_max(cmd),
                 "mmproj_path": mmproj_path,
                 "mmproj_file_mb": mmproj_file_mb,
                 "draft_path": draft_path,
@@ -851,6 +852,17 @@ def calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, num_tokens, iswa_w
     return bytes_total / (1024 * 1024)
 
 
+def _parse_spec_draft_n_max(cmd):
+    """Parse --spec-draft-n-max from command string. Returns 0 if not set."""
+    m = re.search(r'--spec-draft-n-max\s+(\d+)', cmd)
+    if m:
+        try:
+            return int(m.group(1))
+        except ValueError:
+            pass
+    return 0
+
+
 def get_cache_bytes(cache_type, model_quant):
     """Determine bytes per element for KV cache.
     Uses explicit cache type if set, otherwise defaults to F16 (llama.cpp default)."""
@@ -958,9 +970,18 @@ def get_main_model_vram(running_models, valid_metrics):
     cache_ram_cap = active.get("cache_ram_mb", -1)
     if cache_ram_cap > 0:
         cache_mb = min(cache_mb, cache_ram_cap)
+    # MTP draft KV cache: speculative decoding allocates separate KV state per draft token.
+    spec_draft_n = active.get("spec_draft_n_max", 0)
+    draft_cache_mb = 0.0
+    if spec_draft_n > 0:
+        if is_mla:
+            draft_cache_mb = 70.0 * ctx_size * spec_draft_n / (1024)
+        else:
+            draft_kv_layers = effective_layers if effective_layers is not None else layers
+            draft_cache_mb = calc_kv_cache_mb(draft_kv_layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, effective_layers, gemma4_kv) * spec_draft_n
     # Build cache type string for display
     ct_display = active["cache_type"] or "f16"
-    total_vram_mb = weight_mb + mmproj_mb + draft_mb + cache_mb
+    total_vram_mb = weight_mb + mmproj_mb + draft_mb + cache_mb + draft_cache_mb
     return MainModelVram(
         total_mb=total_vram_mb,
         weight_mb=weight_mb,

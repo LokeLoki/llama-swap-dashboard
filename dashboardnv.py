@@ -613,6 +613,13 @@ def fetch_running_models(host):
                     pass
             # Parse spec/drafting flags
             has_spec = "--spec-type" in cmd
+            spec_draft_n_max = 2  # default when --spec-type is set
+            sdn_max_match = re.search(r'--spec-draft-n-max\s+(\d+)', cmd)
+            if sdn_max_match:
+                try:
+                    spec_draft_n_max = int(sdn_max_match.group(1))
+                except ValueError:
+                    pass
             # Parse ALL flags generically from cmd
             all_flags = {}
             for flag_match in re.finditer(r'(?:^|\s)(--[a-zA-Z0-9_-]+|--[a-zA-Z0-9_-]+(?:\s+[^\s"]+)|-[a-zA-Z]\s+([^\s"]+))', cmd):
@@ -641,6 +648,7 @@ def fetch_running_models(host):
                 "mmproj_file_mb": mmproj_file_mb,
                 "draft_path": draft_path,
                 "draft_file_mb": draft_file_mb,
+                "spec_draft_n_max": spec_draft_n_max if has_spec else 0,
                 "cache_ram_mb": cache_ram_mb,
                 "parallel": parallel,
                 "all_flags": all_flags,
@@ -901,9 +909,27 @@ def get_main_model_vram(running_models, valid_metrics):
     cache_ram_cap = active.get("cache_ram_mb", -1)
     if cache_ram_cap > 0:
         cache_mb = min(cache_mb, cache_ram_cap)
+    # MTP draft KV cache: speculative decoding allocates separate KV state per draft token.
+    # --spec-draft-n-max controls how many draft tokens are generated per step.
+    # The draft model uses the same architecture (layers, kv_heads, head_dim) but scaled
+    # by the draft multiplier. For bundled MTP GGUFs, draft weights are in weight_mb
+    # but draft KV cache is separate.
+    spec_draft_n = active.get("spec_draft_n_max", 0)
+    draft_cache_mb = 0.0
+    if spec_draft_n > 0:
+        if is_mla:
+            # MLA draft: ~70 KB/token per draft slot
+            draft_cache_mb = 70.0 * ctx_size * spec_draft_n / (1024)
+        else:
+            # Draft model KV cache: same formula as main, scaled by draft multiplier.
+            # MTP draft models use the same effective KV layers as the main model,
+            # maintaining KV state for spec_draft_n tokens per context window.
+            draft_kv_layers = effective_layers if effective_layers is not None else layers
+            # The draft KV state is proportional to spec_draft_n * context
+            draft_cache_mb = calc_kv_cache_mb(draft_kv_layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, effective_layers, gemma4_kv) * spec_draft_n
     # Build cache type string for display
     ct_display = active["cache_type"] or "f16"
-    total_vram_mb = weight_mb + mmproj_mb + draft_mb + cache_mb
+    total_vram_mb = weight_mb + mmproj_mb + draft_mb + cache_mb + draft_cache_mb
     return MainModelVram(
         total_mb=total_vram_mb,
         weight_mb=weight_mb,
