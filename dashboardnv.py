@@ -147,6 +147,30 @@ MODEL_ARCHITECTURES = {
     "glm-5.2":           (78, 64, 64),
     # Kimi K2 (MLA — follows DeepSeek pattern)
     "kimi-k2":           (61, 128, 128),
+    # Mistral family
+    "mistral-7b":        (32, 8, 128),
+    "mixtral-8x7b":      (32, 8, 128),
+    "mixtral-8x22b":     (56, 8, 128),
+    "codestral":         (40, 8, 128),
+    # Llama 3.2 / 3.3
+    "llama3.3-70b":      (80, 8, 128),
+    "llama3.3-8b":       (32, 8, 128),
+    "llama3.2-3b":       (28, 8, 128),
+    "llama3.2-1b":       (16, 4, 64),
+    # Phi family
+    "phi-4":             (40, 40, 128),
+    "phi-3.5":           (32, 32, 96),
+    "phi-3":             (32, 32, 96),
+    # Command-R family
+    "command-r-plus":    (64, 8, 128),
+    "command-r":         (32, 8, 128),
+    # Yi family
+    "yi-34b":            (60, 8, 128),
+    "yi-9b":             (32, 8, 128),
+    # Exaone
+    "exaone-3.5":        (64, 8, 128),
+    # SmollM2
+    "smollm2":           (24, 8, 64),
 }
 
 # Quantization bytes-per-element for KV cache.
@@ -607,8 +631,12 @@ def short_model_name(model_path_or_id):
     - DeepSeek R: dr14, dr33
     Returns the short alias or the original if nothing matches."""
     text = model_path_or_id.lower()
+    # Strip .gguf extension first
+    text = re.sub(r'\.gguf$', '', text)
     # Remove common suffixes that don't affect the name
-    text = re.sub(r'(-it|-chat|-instruct|-ud|-abliterated|-heretic|-uncensored|-qat|-code|-mt)$', '', text)
+    text = re.sub(r'[-_](it|chat|instruct|ud|abliterated|heretic|uncensored|qat|code|mt)', '', text)
+    # Remove quantization tags (e.g., -Q4_K_M, -Q8_0, -F16)
+    text = re.sub(r'[-_](q\d+_?k_?[a-z]*|q\d+_?\d*|iq\d+_?[a-z]*|f16|bf16)', '', text)
 
     # Detect family (first meaningful word or known prefix)
     family = ""
@@ -707,11 +735,12 @@ def find_model_arch(model_path, model_quant):
     Returns (layers, kv_heads, head_dim) or None."""
     if not model_path:
         return None
-    path_lower = model_path.lower()
-    # Check exact family matches first (longest keys first for specificity)
+    # Normalize: strip hyphens, dots, underscores so "llama-3.1-70b" matches "llama3.1-70b"
+    clean_path = re.sub(r'[-._]', '', model_path.lower())
     sorted_keys = sorted(MODEL_ARCHITECTURES.keys(), key=len, reverse=True)
     for family in sorted_keys:
-        if family in path_lower:
+        clean_family = re.sub(r'[-._]', '', family.lower())
+        if clean_family in clean_path:
             return MODEL_ARCHITECTURES[family]
     return None
 
