@@ -97,6 +97,8 @@ MODEL_ARCHITECTURES = {
     "gemma4-12b":    (48, 8, 256),
     "gemma4-31b":    (60, 8, 256),
     "gemma4-26b-a4b": (30, 8, 256),
+    # Bonsai 27B (binary/ternary quantization of Qwen3.6-27B — architecture unchanged)
+    "bonsai":        (64, 4, 256),
     # DeepSeek
     "deepseek-v3":   (61, 128, 128),
     "deepseek-r1":   (61, 128, 128),
@@ -119,6 +121,9 @@ QUANT_CACHE_BYTES = {
     "iq4_xs":  0.5,
     "q3_k_m":  0.375,
     "q2_k":    0.25,
+    # Bonsai 27B quantizations (1-bit and 1.58-bit ternary)
+    "q1_0":    0.5,
+    "q2_0":    0.5,
 }
 
 RESET = "\033[0m"
