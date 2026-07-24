@@ -969,6 +969,13 @@ def render_prompt_log(valid_metrics, running_models=None):
             mp = rm.get("model_path", "")
             if mid and mp:
                 path_map[mid] = mp
+        # Also build a fallback: config key -> short name from actual running model
+        running_short = {}
+        for rm in running_models:
+            mid = rm.get("model_id", "")
+            mp = rm.get("model_path", "")
+            if mid and mp:
+                running_short[mid] = short_model_name(mp)
 
     lines.append(f"  {BOLD}Last Prompts{RESET}")
     lines.append(f"  {BOLD}{DIM}{'─' * 56}{RESET}")
@@ -978,6 +985,9 @@ def render_prompt_log(valid_metrics, running_models=None):
         # Map config key to GGUF path, then shorten
         display_path = path_map.get(raw_model, raw_model)
         model = short_model_name(display_path) if raw_model != "—" else "—"
+        # Fallback: use cached short name if config key wasn't resolved to a path
+        if model == short_model_name(raw_model) and raw_model in running_short:
+            model = running_short[raw_model]
         prompt_tps = t.get("prompt_per_second", 0)
         decode_tps = t.get("tokens_per_second", 0)
         input_tok = t.get("input_tokens", 0)
