@@ -91,6 +91,12 @@ MODEL_ARCHITECTURES = {
     "gemma2-27b":    (46, 16, 128),
     "gemma2-9b":     (42, 8, 256),
     "gemma2-2b":     (26, 4, 256),
+    # Gemma 4 (hybrid sliding/global attention — use sliding layer values for KV cache)
+    "gemma4-e4b":    (42, 8, 256),
+    "gemma4-e2b":    (35, 8, 256),
+    "gemma4-12b":    (48, 8, 256),
+    "gemma4-31b":    (60, 8, 256),
+    "gemma4-26b-a4b": (30, 8, 256),
     # DeepSeek
     "deepseek-v3":   (61, 128, 128),
     "deepseek-r1":   (61, 128, 128),
