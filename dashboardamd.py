@@ -195,6 +195,19 @@ QUANT_CACHE_BYTES = {
     "q2_0":    0.5,
 }
 
+# Gemma iSWA (Interleaved Sliding Window Attention): every other layer only
+# caches a fixed window. Window sizes per model family.
+GEMMA_ISWA_WINDOW = {
+    "gemma2-27b": 4096,
+    "gemma2-9b":  4096,
+    "gemma2-2b":  4096,
+    "gemma4-e4b": 4096,
+    "gemma4-e2b": 4096,
+    "gemma4-12b": 4096,
+    "gemma4-31b": 4096,
+    "gemma4-26b-a4b": 4096,
+}
+
 RESET = "\033[0m"
 BOLD = "\033[1m"
 ITALIC = "\033[3m"
@@ -802,10 +815,20 @@ def find_model_arch(model_path, model_quant):
     return None
 
 
-def calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, num_tokens):
+def calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, num_tokens, iswa_window=None):
     """Calculate KV cache size in MB.
-    Formula: 2 * layers * kv_heads * head_dim * cache_bytes * tokens / 1MB"""
-    bytes_total = 2 * layers * kv_heads * head_dim * cache_bytes * num_tokens
+    Formula: 2 * layers * kv_heads * head_dim * cache_bytes * tokens / 1MB
+    With iSWA: effective layers = layers/2 + layers/2 * min(ctx/window, 1)"""
+    if iswa_window is not None and iswa_window > 0:
+        # Interleaved sliding window: half layers cache full context, half cache only the window
+        global_layers = layers // 2
+        sliding_layers = layers - global_layers
+        effective_tokens = global_layers * num_tokens + sliding_layers * min(num_tokens, iswa_window)
+        total_layers_tokens = effective_tokens
+        # Normalize back to "layers * tokens" equivalent
+        bytes_total = 2 * kv_heads * head_dim * cache_bytes * total_layers_tokens
+    else:
+        bytes_total = 2 * layers * kv_heads * head_dim * cache_bytes * num_tokens
     return bytes_total / (1024 * 1024)
 
 
@@ -869,6 +892,15 @@ def get_main_model_vram(running_models, valid_metrics):
     # DeepSeek R1/V3 use MLA (Multi-head Latent Attention) — compressed KV cache.
     # Standard formula wildly overestimates. Use flat ~70 KB/token instead.
     is_mla = "deepseek" in active["model_path"].lower() or "kimi" in active["model_path"].lower()
+    # Gemma iSWA: find matching window size
+    path_lower = active["model_path"].lower()
+    iswa_window = None
+    for key, window in GEMMA_ISWA_WINDOW.items():
+        clean_key = re.sub(r'[-._]', '', key.lower())
+        clean_path = re.sub(r'[-._]', '', path_lower)
+        if clean_key in clean_path:
+            iswa_window = window
+            break
     # Get weights size
     weight_mb = active.get("model_file_mb", 0)
     if weight_mb == 0:
@@ -893,7 +925,7 @@ def get_main_model_vram(running_models, valid_metrics):
         # MLA: ~70 KB/token (compressed key/value + RoPE keys)
         cache_mb = 70.0 * ctx_size / (1024)
     else:
-        cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size)
+        cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window)
     # Apply --cache-ram cap if set (limits KV cache on GPU, rest spills to DRAM)
     cache_ram_cap = active.get("cache_ram_mb", -1)
     if cache_ram_cap > 0:
