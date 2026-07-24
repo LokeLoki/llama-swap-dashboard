@@ -88,9 +88,9 @@ python dashboardnv.py --help
 
 ## Model VRAM Calculation
 
-The dashboard estimates total VRAM usage by combining model weights with a calculated KV cache size — no guessing. When multimodal (`--mmproj`) or speculative decoding (`--model-draft` / DFlash / MTP) are used, the exact file sizes of those models are included in the calculation too. The `--cache-ram` flag is respected — KV cache is capped to the specified limit when set, preventing overestimation when cache spills to DRAM.
+The dashboard estimates total VRAM usage by combining model weights with a calculated KV cache size. When multimodal (`--mmproj`) or speculative decoding (`--model-draft` / DFlash / MTP) are used, the exact file sizes of those models are included in the calculation too. The `--cache-ram` flag is respected — KV cache is capped to the specified limit when set, preventing overestimation when cache spills to DRAM.
 
-It works by looking up each model's architecture (layers, KV heads, head dimension) in a built-in table covering Qwen, Llama, Gemma, DeepSeek, Kimi K2, GLM 5.2, Laguna, Ornith, Bonsai, Mixtral, and more families. Then it multiplies:
+It works by looking up each model's architecture (layers, KV heads, head dimension) in a built-in table covering Qwen, Llama, Gemma, DeepSeek, Kimi K2, GLM 5.2, Laguna, Ornith, Bonsai, Mixtral, and more. Then it multiplies:
 
 ```
 cache = 2 × layers × kv_heads × head_dim × cache_bytes × tokens
