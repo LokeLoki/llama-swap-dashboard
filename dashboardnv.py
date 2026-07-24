@@ -866,7 +866,7 @@ def get_main_model_vram(running_models, valid_metrics):
     layers, kv_heads, head_dim = arch
     # DeepSeek R1/V3 use MLA (Multi-head Latent Attention) — compressed KV cache.
     # Standard formula wildly overestimates. Use flat ~70 KB/token instead.
-    is_mla = "deepseek" in active["model_path"].lower() or "kimi" in active["model_path"].lower()
+    is_mla = ("deepseek" in active["model_path"].lower() or "kimi" in active["model_path"].lower()) and "distill" not in active["model_path"].lower()
     # Gemma iSWA: find matching window size from MODEL_ARCHITECTURES keys
     path_lower = active["model_path"].lower()
     iswa_window = None
@@ -922,8 +922,10 @@ def get_main_model_vram(running_models, valid_metrics):
     draft_cache_mb = 0.0
     if spec_draft_n > 0:
         if is_mla:
-            # MLA draft: ~70 KB/token per draft slot
-            draft_cache_mb = 70.0 * ctx_size * spec_draft_n / (1024)
+            # MLA MTP (DeepSeek-V3/R1): MTP heads share the main MLA KV cache.
+            # MTP Eagle reuses the same KV slots; MTP Vanilla adds minimal overhead.
+            # Keep draft_cache_mb near zero — the main cache already accounts for it.
+            draft_cache_mb = 0.0
         elif draft_mb > 0:
             # Separate draft model (--model-draft): full KV cache scaled by spec_draft_n.
             # The draft model has its own complete architecture.
@@ -984,7 +986,7 @@ def get_aux_vram(aux_info, aux_port):
             cache_bytes = 1.0
             ctx = aux_info.context_length
             # DeepSeek/Kimi use MLA — flat ~70 KB/token
-            aux_is_mla = "deepseek" in aux_info.name.lower() or "kimi" in aux_info.name.lower()
+            aux_is_mla = ("deepseek" in aux_info.name.lower() or "kimi" in aux_info.name.lower()) and "distill" not in aux_info.name.lower()
             if aux_is_mla:
                 cache_mb = 70.0 * ctx / (1024)
             else:
@@ -1112,10 +1114,12 @@ def get_metrics_by_bucket(valid_metrics):
     bucket_vals = {}
     for m in uncached:
         input_tok = m.get("tokens", {}).get("input_tokens", 0)
+        output_tok = m.get("tokens", {}).get("output_tokens", 0)
+        seq_len = input_tok + output_tok  # final sequence length (includes long reasoning)
         pps = m.get("tokens", {}).get("prompt_per_second", 0)
         dps = m.get("tokens", {}).get("tokens_per_second", 0)
         for label, mn, mx in TOKEN_BUCKETS:
-            if mn <= input_tok <= mx:
+            if mn <= seq_len <= mx:
                 existing = bucket_vals.get(label)
                 if existing is None or dps > existing["best_d"]:
                     bucket_vals[label] = {
