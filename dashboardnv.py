@@ -677,13 +677,11 @@ def calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, num_tokens):
 
 def get_cache_bytes(cache_type, model_quant):
     """Determine bytes per element for KV cache.
-    Uses explicit cache type if set, otherwise infers from model quant."""
+    Uses explicit cache type if set, otherwise defaults to F16 (llama.cpp default)."""
     if cache_type and cache_type in QUANT_CACHE_BYTES:
         return QUANT_CACHE_BYTES[cache_type]
-    if model_quant and model_quant in QUANT_CACHE_BYTES:
-        return QUANT_CACHE_BYTES[model_quant]
-    # Default to q4_0 if unknown
-    return 0.5
+    # Default to F16 (2.0) — llama.cpp's default when -ctk is not set
+    return 2.0
 
 
 # Active state labels that rotate randomly when the model is working
@@ -760,7 +758,7 @@ def get_main_model_vram(running_models, valid_metrics):
     if cache_ram_cap > 0:
         cache_mb = min(cache_mb, cache_ram_cap)
     # Build cache type string for display
-    ct_display = active["cache_type"] or active["model_quant"] or "q4_0"
+    ct_display = active["cache_type"] or "f16"
     total_vram_mb = weight_mb + mmproj_mb + draft_mb + cache_mb
     return (total_vram_mb, weight_mb, mmproj_mb, draft_mb, cache_mb, ct_display)
 
