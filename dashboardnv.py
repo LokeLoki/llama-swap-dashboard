@@ -102,6 +102,13 @@ MODEL_ARCHITECTURES = {
     # DeepSeek
     "deepseek-v3":   (61, 128, 128),
     "deepseek-r1":   (61, 128, 128),
+    # Laguna family (GQA)
+    "laguna-s-2.1":      (48, 8, 128),
+    "laguna-xs-2.1":     (40, 8, 128),
+    # GLM 5.2 (MHA)
+    "glm-5.2":           (78, 64, 64),
+    # Kimi K2 (MLA — follows DeepSeek pattern)
+    "kimi-k2":           (61, 128, 128),
 }
 
 # Quantization bytes-per-element for KV cache.
@@ -568,7 +575,13 @@ def short_model_name(model_path_or_id):
     elif 'deepseek' in text:
         family = 'd'
     elif 'llama' in text:
-        family = 'l'
+        family = 'll'
+    elif 'laguna' in text:
+        family = 'la'
+    elif 'glm' in text:
+        family = 'gl'
+    elif 'kimi' in text:
+        family = 'kk'
     elif 'mixtral' in text:
         family = 'mx'
     elif 'yi' in text:
@@ -597,7 +610,7 @@ def short_model_name(model_path_or_id):
     # Detect Gemma E-variant (E4B, E2B) — these use 'e' prefix
     e_var = re.search(r'e(\d+)b', text)
     if e_var and family == 'g':
-        return f"ge{e_var.group(1)}"
+        return f"Ge{e_var.group(1)}"
 
     # Detect total params XB pattern (e.g., 27B, 35B, 4B, 122B)
     params = re.search(r'(\d+)b', text)
@@ -607,13 +620,13 @@ def short_model_name(model_path_or_id):
         # Detect MoE AxB pattern (e.g., A3B, A10B, A17B)
         moe = re.search(r'a(\d+)b', text)
         if moe:
-            return f"{family}{param_str}a{moe.group(1)}"
+            return f"{family[0].upper()}{family[1:]}{param_str}a{moe.group(1)}"
 
         # DeepSeek R variants
         if family == 'd' and 'r' in text[:15]:
-            return f"dr{param_str}"
+            return f"Dr{param_str}"
 
-        return f"{family}{param_str}"
+        return f"{family[0].upper()}{family[1:]}{param_str}"
 
     # Fallback: return original if pattern didn't match
     return model_path_or_id
