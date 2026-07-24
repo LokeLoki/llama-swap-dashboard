@@ -1251,6 +1251,26 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
 
     lines.append(f" {BOLD}{CYAN}{'═' * 56}{RESET}")
     lines.append(token_line)
+
+    # Subtle footer: full model path + key flags
+    if running_models and running_models[0].get("model_path"):
+        rm = running_models[0]
+        gguf = os.path.basename(rm["model_path"])
+        flags = [f"-c {rm.get('max_context', 0)}"]
+        if rm.get("cache_type"):
+            flags.append(f"-ctk {rm['cache_type']}")
+        if rm.get("cache_ram_mb", -1) > 0:
+            flags.append(f"--cache-ram {rm['cache_ram_mb']}")
+        if rm.get("parallel", 1) > 1:
+            flags.append(f"-np {rm['parallel']}")
+        if rm.get("mmproj_path"):
+            flags.append(f"--mmproj {os.path.basename(rm['mmproj_path'])}")
+        if rm.get("draft_path"):
+            flags.append(f"--model-draft {os.path.basename(rm['draft_path'])}")
+        if rm.get("has_spec"):
+            flags.append("--spec-type draft-mtp")
+        lines.append(f"  {DIM}└─ {gguf} {' '.join(flags)}{RESET}")
+
     lines.append(f" {DIM}Refresh: {refresh_interval}s | Ctrl+C to quit")
     lines.append(f" {DIM}GPU UTIL >5% = active")
     lines.append("")
