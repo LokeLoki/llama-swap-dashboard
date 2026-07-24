@@ -909,24 +909,22 @@ def get_main_model_vram(running_models, valid_metrics):
     cache_ram_cap = active.get("cache_ram_mb", -1)
     if cache_ram_cap > 0:
         cache_mb = min(cache_mb, cache_ram_cap)
-    # MTP draft KV cache: speculative decoding allocates separate KV state per draft token.
-    # --spec-draft-n-max controls how many draft tokens are generated per step.
-    # The draft model uses the same architecture (layers, kv_heads, head_dim) but scaled
-    # by the draft multiplier. For bundled MTP GGUFs, draft weights are in weight_mb
-    # but draft KV cache is separate.
+    # MTP draft KV cache: Multi-Token Prediction uses the main model's MTP heads,
+    # not a separate draft model. Each MTP head is a single-layer transformer.
+    # KV state scales with context, not with spec-draft-n-max (which controls how
+    # many tokens are drafted per step, not cache size).
+    # Qwen3.6 models have 3 MTP layers baked into the GGUF.
     spec_draft_n = active.get("spec_draft_n_max", 0)
     draft_cache_mb = 0.0
     if spec_draft_n > 0:
         if is_mla:
-            # MLA draft: ~70 KB/token per draft slot
+            # MLA MTP: ~70 KB/token × spec_draft_n
             draft_cache_mb = 70.0 * ctx_size * spec_draft_n / (1024)
         else:
-            # Draft model KV cache: same formula as main, scaled by draft multiplier.
-            # MTP draft models use the same effective KV layers as the main model,
-            # maintaining KV state for spec_draft_n tokens per context window.
-            draft_kv_layers = effective_layers if effective_layers is not None else layers
-            # The draft KV state is proportional to spec_draft_n * context
-            draft_cache_mb = calc_kv_cache_mb(draft_kv_layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, effective_layers, gemma4_kv) * spec_draft_n
+            # MTP KV cache: single layer per MTP head × spec_draft_n heads.
+            # Much lighter than a full draft model — roughly 1/16th of main cache per head.
+            mtp_layers = min(spec_draft_n, 3)  # Qwen3.6 has 3 MTP layers
+            draft_cache_mb = calc_kv_cache_mb(mtp_layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, mtp_layers, gemma4_kv)
     # Build cache type string for display
     ct_display = active["cache_type"] or "f16"
     total_vram_mb = weight_mb + mmproj_mb + draft_mb + cache_mb + draft_cache_mb
