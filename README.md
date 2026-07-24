@@ -1,4 +1,4 @@
-# GPU Dashboard
+# llama-swap Dashboard
 
 Live GPU and inference monitor for llama-swap with optional Ollama auxiliary model.
 
@@ -47,7 +47,7 @@ The dashboard auto-detects llama-swap on first run. If it can't reach `localhost
 `dashboard.conf` is created automatically. You can edit it directly or delete it to reset:
 
 ```ini
-# GPU Dashboard configuration
+# llama-swap Dashboard configuration
 #
 # host            - llama-swap API URL (required)
 # config_yaml     - path to llama-swap config.yaml (optional, for model name + quant parsing)
