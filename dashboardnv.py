@@ -1327,6 +1327,48 @@ def _format_metric_line(label, vram_str, decode_tps, align_visible=40, is_aux=Fa
     return f"  {prefix}{' ' * pad}{decode_str}"
 
 
+def get_main_model_decode(valid_metrics, running_models, gpus):
+    """Get main model decode speed.
+    If actively inferring, estimate from recent average + GPU utilization.
+    Otherwise return last completed decode TPS.
+    Returns (tps, is_estimated) tuple."""
+    if not valid_metrics:
+        return 0, False
+
+    latest = valid_metrics[-1]
+    last_tps = latest.get("tokens", {}).get("tokens_per_second", 0)
+
+    # Check if llama-server is actively computing
+    is_decoding = False
+    gpu_util = 0
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=pid,utilization.gpu", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if "llama-server" in line.lower() or "llama" in line.lower():
+                    parts = line.split(",")
+                    if len(parts) >= 2:
+                        gpu_util = safe_float(parts[1].strip())
+                        is_decoding = gpu_util > 3  # >3% means actively computing
+    except Exception:
+        pass
+
+    if is_decoding:
+        # Estimate from recent average decode TPS
+        recent = [m.get("tokens", {}).get("tokens_per_second", 0) for m in valid_metrics[-5:]]
+        recent = [t for t in recent if t > 0]
+        if recent:
+            avg_tps = sum(recent) / len(recent)
+            # Simple adjustment: higher GPU util often means mid-prefill or heavy context
+            # Use average as baseline estimate
+            return round(avg_tps), True
+
+    return last_tps, False
+
+
 def render_main_model_decode(valid_metrics, sys_info):
     """Render system RAM and return latest decode tps from valid metrics."""
     lines = []
@@ -1396,9 +1438,11 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     lines.append("")
 
     # System memory + model decode speeds
-    sys_lines, decode_tps = render_main_model_decode(valid_metrics, sys_info)
+    sys_lines, _ = render_main_model_decode(valid_metrics, sys_info)
     lines.extend(sys_lines)
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
+    # Get live decode estimate
+    decode_tps, is_estimated = get_main_model_decode(valid_metrics, running_models, gpus)
     # Calculate main model VRAM: weights + KV cache (additive estimate)
     main_vram_info = get_main_model_vram(running_models, valid_metrics) if running_models else None
     if main_vram_info:
@@ -1420,7 +1464,11 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         model_label = f"— ({host.split(':')[-1] if ':' in host else '8080'})"
     # Inference state
     main_state = get_inference_state(valid_metrics, gpus) if valid_metrics else None
-    lines.append(_format_metric_line(model_label, main_vram_str, decode_tps))
+    decode_str = f"~{decode_tps:.0f}" if is_estimated else f"{decode_tps:.0f}"
+    lines.append(_format_metric_line(model_label, main_vram_str, decode_tps if not is_estimated else decode_tps))
+    if is_estimated:
+        # Override the decode line to show "est. ~XX t/s"
+        lines[-1] = f"  {DIM}│{RESET} {DIM}decode:{RESET} {DIM}est. ~{LIGHT_GREEN}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET}"
     if aux_info:
         aux_name = aux_info.name
         aux_short = aux_name.split(":")[0]
