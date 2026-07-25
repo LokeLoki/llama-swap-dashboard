@@ -862,23 +862,14 @@ def get_inference_state(valid_metrics, gpus):
     return "active" if active_gpus else "idle"
 
 
-def get_aux_state(aux_info, aux_port):
+def get_aux_state(aux_info, aux_port, ollama_active=None):
     """Detect if the auxiliary model is currently active.
+    Uses cached ollama_active state to avoid repeated API calls.
     Returns 'active' or 'idle'."""
     if not aux_info:
         return "idle"
-    try:
-        aux_host = f"http://127.0.0.1:{aux_port}"
-        req = urllib.request.Request(f"{aux_host}/api/ps")
-        with urllib.request.urlopen(req, timeout=2) as resp:
-            data = json.loads(resp.read())
-        models = data.get("models", [])
-        if not models:
-            return "idle"
-        load = models[0].get("load", 0)
-        return "active" if load > 0 else "idle"
-    except Exception:
-        pass
+    if ollama_active is True:
+        return "active"
     return "idle"
 
 
@@ -1436,7 +1427,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         aux_total_mb = get_aux_vram(aux_info, aux_port)
         aux_tps = aux_info.decode_tps
         aux_vram_str = f"{aux_total_mb / 1024:.1f} GB"
-        aux_state = get_aux_state(aux_info, aux_port)
+        aux_state = get_aux_state(aux_info, aux_port, ollama_active)
         aux_active = ollama_active
         lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", aux_vram_str, aux_tps, is_aux=True, spinner_frame=spinner_frame, aux_active=aux_active))
     else:
