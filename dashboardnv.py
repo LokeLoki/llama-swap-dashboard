@@ -752,7 +752,7 @@ def short_model_name(model_path_or_id):
         if match:
             family = match.group(1)[:2]
         else:
-            family = "M"  # Universal fallback
+            family = text.split('/')[-1][-6:]  # Last 6 chars of filename
 
     # Detect Gemma E-variant (E4B, E2B) — these use 'e' prefix
     e_var = re.search(r'e(\d+)b', text)
