@@ -1838,6 +1838,20 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     # Inference state
     main_state = get_inference_state(valid_metrics, gpus) if valid_metrics else None
     lines.append(_format_metric_line(model_label, main_vram_str, active=decode_tps > 0, spinner_frame=spinner_frame))
+    # Show overhead breakdown if available
+    if main_vram_info and main_vram_info.overhead_mb > 0:
+        static_gb = (main_vram_info.total_mb - main_vram_info.overhead_mb) / 1024
+        overhead_gb = main_vram_info.overhead_mb / 1024
+        lines.append(
+            f"  {DIM}  ├─ Static: {RESET}{PRIMARY_LIGHT}{static_gb:.1f} GB{RESET} {DIM}(weights + KV cache){RESET}"
+        )
+        lines.append(
+            f"  {DIM}  └─ Runtime: {RESET}{ORANGE}{overhead_gb:.1f} GB{RESET} {DIM}"
+            f"(ctx:{main_vram_info.cuda_context_mb:.0f} "
+            f"comp:{main_vram_info.compute_buffer_mb:.0f} "
+            f"fa:{main_vram_info.flash_attn_mb:.0f} "
+            f"sync:{main_vram_info.tensor_sync_mb:.0f}{DIM}){RESET}"
+        )
     if aux_info:
         aux_name = aux_info.name
         aux_short = aux_name.split(":")[0]
