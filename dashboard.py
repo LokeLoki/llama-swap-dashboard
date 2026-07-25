@@ -348,6 +348,7 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
             total_b = int(total_b_match.group(1))
             active_weight_mb = model_weight_mb * (active_b / total_b)
             size_factor = active_weight_mb / base_weight_mb
+    elif re.search(r'\dx\d+b', path_lower):
         # Mixtral: "8x7b" → 7B active
         mixtral_match = re.search(r'(\d+)x(\d+)b', path_lower)
         if mixtral_match:
