@@ -320,39 +320,18 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
     # 1. CUDA context overhead per active GPU (~350 MB flat, consumer GPU average)
     cuda_context_total = 350.0 * num_active_gpus
 
-    # 2. Compute buffer - scales with ubatch and model size.
-    #    Head GPU: fixed + ubatch * head_factor
-    #    Tail GPU: fixed + ubatch * tail_factor (holds intermediate activations)
-    #    Base factors tuned for 27B model (16.5 GB weights). Scale linearly
-    #    with model size since buffer depends on hidden dimension and layer count.
-    #    From issue #23894 (27B, ubatch=512): head=325, tail=983 MB
-    #    From issue #24175 (ubatch=16): ~42 MB total
+    # 2. Compute buffer — uniform per GPU, proportional to model size.
+    #    PR #14484 (July 2025): 3-pass allocation, each GPU gets a buffer
+    #    sized to its layer slice. Total observed for 27B/ubatch=512/2 GPUs = 1308 MB.
+    #    Per GPU: 100 + ubatch × 1.08 (averaged across layer fractions)
+    #    Scales linearly with model size (hidden dim × layer count).
     base_weight_mb = 16500.0  # 27B reference model
     if model_weight_mb:
         size_factor = model_weight_mb / base_weight_mb
     else:
         size_factor = 1.0
-    head_fixed = 100.0 * size_factor
-    tail_fixed = 100.0 * size_factor
-    head_factor = 0.40 * size_factor  # MB per ubatch token for head GPU
-    tail_factor = 1.75 * size_factor  # MB per ubatch token for tail GPU
-    compute_buffer_total = 0.0
-    for i in range(num_active_gpus):
-        is_head = (i == 0)
-        is_tail = (i == num_active_gpus - 1) and num_active_gpus > 1
-        if is_head and not is_tail:
-            fixed, factor = head_fixed, head_factor
-        elif is_tail:
-            fixed, factor = tail_fixed, tail_factor
-        else:
-            # Middle GPUs: linear interpolation between head and tail
-            # Position 0=head, last=tail; intermediates scale proportionally
-            # This matches pipeline parallelism where each GPU accumulates
-            # activations for all upstream layers proportionally to its position
-            frac = i / (num_active_gpus - 1) if num_active_gpus > 1 else 0
-            fixed = head_fixed
-            factor = head_factor + (tail_factor - head_factor) * frac
-        compute_buffer_total += fixed + ubatch_size * factor
+    compute_per_gpu = (100.0 + ubatch_size * 1.08) * size_factor
+    compute_buffer_total = compute_per_gpu * num_active_gpus
 
     # 3. Flash attention KV reservation (PR #23907)
     #    ~300 MB per GPU at 100k ctx with q8_0 KV, scales with ctx and model size
