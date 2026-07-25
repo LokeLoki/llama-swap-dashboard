@@ -1373,6 +1373,27 @@ def get_aux_vram(aux_info, aux_port):
     return weight_mb
 
 
+def fetch_prometheus_metrics(proxy_url):
+    """Fetch aggregate acceptance rate from upstream llama.cpp /metrics endpoint.
+    Returns acceptance rate as a float (0.0-1.0) or None."""
+    try:
+        metrics_url = f"{proxy_url.rstrip('/')}/metrics"
+        req = urllib.request.Request(metrics_url)
+        with urllib.request.urlopen(req, timeout=2) as resp:
+            text = resp.read().decode("utf-8", errors="replace")
+        for line in text.splitlines():
+            if line.startswith("llamacpp:draft_acceptance_rate"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    try:
+                        return float(parts[-1])
+                    except (ValueError, IndexError):
+                        pass
+    except Exception:
+        pass
+    return None
+
+
 def fetch_metrics(metrics_url):
     """Fetch all metrics from /api/metrics."""
     try:
@@ -1836,7 +1857,20 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         model_label = f"— ({host.split(':')[-1] if ':' in host else '8080'})"
     # Inference state
     main_state = get_inference_state(valid_metrics, gpus) if valid_metrics else None
+    # Fetch aggregate acceptance rate from upstream /metrics (Prometheus)
+    acceptance_rate = None
+    if running_models:
+        proxy_url = running_models[0].get("proxy")
+        has_spec = running_models[0].get("has_spec", False)
+        if has_spec and proxy_url:
+            acceptance_rate = fetch_prometheus_metrics(proxy_url)
+    # Append acceptance rate to model label if active
+    acc_display = ""
+    if acceptance_rate is not None:
+        acc_display = f" {DIM}│{RESET} {DIM}acc:{RESET}{LIGHT_GREEN}{acceptance_rate * 100:.0f}%{RESET}"
     lines.append(_format_metric_line(model_label, main_vram_str, active=decode_tps > 0, spinner_frame=spinner_frame))
+    if acc_display:
+        lines.append(f"  {acc_display}")
     # Show overhead breakdown if available
     if main_vram_info and main_vram_info.overhead_mb > 0:
         static_gb = (main_vram_info.total_mb - main_vram_info.overhead_mb) / 1024
