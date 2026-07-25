@@ -944,7 +944,7 @@ def fetch_running_models(host):
                 except ValueError:
                     pass
             # Parse spec/drafting flags
-            has_spec = "--spec-type" in cmd
+            has_spec = "--spec-type" in cmd or "--model-draft" in cmd
             spec_draft_n_max = 2  # default when --spec-type is set
             sdn_max_match = re.search(r'--spec-draft-n-max\s+(\d+)', cmd)
             if sdn_max_match:
@@ -1589,6 +1589,11 @@ def render_prompt_log(valid_metrics, running_models=None, num_prompts=3, session
     bar = f"{DIM}[{RESET}{block_color}{'█' * filled}{RESET}{DIM}{'░' * empty}{RESET}{DIM}]{RESET}"
     lines.append(f"  {bar}")
     lines.append(f"  {BOLD}{DIM}{'─' * 56}{RESET}")
+    # Check if speculative decoding is active
+    has_spec = False
+    if running_models:
+        has_spec = running_models[0].get("has_spec", False)
+
     for req in reversed(recent):
         t = req.get("tokens", {})
         raw_model = req.get("model", "—")
@@ -1606,11 +1611,21 @@ def render_prompt_log(valid_metrics, running_models=None, num_prompts=3, session
         duration = req.get("duration_ms", 0)
         req_time = format_time(req.get("timestamp", ""))
 
+        # Speculative decoding acceptance rate
+        spec_str = ""
+        if has_spec:
+            draft_n = t.get("draft_n", 0)
+            draft_accepted = t.get("draft_n_accepted", 0)
+            if draft_n > 0:
+                acc_pct = (draft_accepted / draft_n) * 100
+                spec_str = f" {DIM}│{RESET} {DIM}acc:{RESET}{LIGHT_GREEN}{acc_pct:.0f}%{RESET}"
+
         lines.append(
             f"  {DIM}[{req_time}]{RESET} {BOLD}{model}{RESET} "
             f"{DIM}│{RESET} {DIM}decode:{RESET} {PRIMARY_LIGHT}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET} "
             f"{DIM}│{RESET} {DIM}prompt:{RESET} {PRIMARY}{prompt_tps:.0f}{RESET}{WHITE}t/s{RESET} "
             f"{DIM}│{RESET} {DIM}{format_duration(duration)}{RESET}"
+            f"{spec_str}"
         )
         lines.append(
             f"  {DIM}     {RESET}{DIM}in:{RESET}{WHITE}{input_tok}{RESET} "
