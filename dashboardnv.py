@@ -1500,6 +1500,11 @@ def main():
     chart_metrics = []  # Metrics used for the chart (resettable via Ctrl+R)
     spinner_frame = 0  # Animation frame for aux indicator
     ollama_active = False  # Cached Ollama active state
+    gpus = []
+    sys_info = {}
+    aux_info = None
+    running_models = None
+    metrics = []
 
     if config_yaml:
         print(f"Model config loaded: {config_yaml}")
