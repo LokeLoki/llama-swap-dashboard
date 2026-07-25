@@ -1516,6 +1516,20 @@ def main():
     while True:
         loop_start = time.time()
 
+        # Keyboard shortcuts first — detect early for instant feedback
+        key = _read_key()
+        key_pressed = False
+        if key:
+            if key in (b"+", b"=", b"'"):  # + or = (shift +)
+                num_prompts = min(10, num_prompts + 1)
+                key_pressed = True
+            elif key in (b"-", b"_"):
+                num_prompts = max(1, num_prompts - 1)
+                key_pressed = True
+            elif key in (b"\x12", b"c", b"r"):  # Ctrl+R (0x12) or 'r'
+                chart_metrics = []  # Reset chart buckets
+                key_pressed = True
+
         # Staggered refresh — only poll each source every N cycles
         loop_frame += 1
 
@@ -1564,20 +1578,6 @@ def main():
 
         # Accumulate new metrics for the chart
         chart_metrics.extend(new_valid)
-
-        # Keyboard shortcuts — trigger immediate re-render
-        key = _read_key()
-        key_pressed = False
-        if key:
-            if key in (b"+", b"=", b"'"):  # + or = (shift +)
-                num_prompts = min(10, num_prompts + 1)
-                key_pressed = True
-            elif key in (b"-", b"_"):
-                num_prompts = max(1, num_prompts - 1)
-                key_pressed = True
-            elif key in (b"\x12", b"c", b"r"):  # Ctrl+R (0x12) or 'r'
-                chart_metrics = []  # Reset chart buckets
-                key_pressed = True
 
         buckets = get_metrics_by_bucket(chart_metrics)
         identity = get_active_model_identity(valid, config_yaml)
