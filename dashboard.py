@@ -154,8 +154,10 @@ MODEL_ARCHITECTURES = {
     "qwen3.5-27b":   (64, 4, 256),
     "qwen3.5-9b":    (48, 4, 256),
     "qwen3.5-8b":    (48, 4, 256),
+    # Qwen 3.6 MoE
+    "qwen3.6-35b-a3b":    (40, 2, 256),
     # Qwen 3.5 MoE
-    "qwen3.5-35b-a3b":    (48, 4, 256),
+    "qwen3.5-35b-a3b":    (40, 2, 256),
     "qwen3.5-122b-a10b":  (64, 8, 256),
     "qwen3.5-397b-a17b":  (72, 8, 256),
     # Ornith (Qwen3.5-based)
@@ -388,8 +390,10 @@ QWEN_HYBRID_LAYERS = {
     "qwen3.5-27b":   16,
     "qwen3.5-9b":    12,   # 48 total → 12 GatedAttn
     "qwen3.5-8b":    12,
+    # Qwen 3.6 MoE
+    "qwen3.6-35b-a3b":    10,   # 40 total → 10 GatedAttn
     # Qwen 3.5 MoE
-    "qwen3.5-35b-a3b":    12,   # 48 total → 12 GatedAttn
+    "qwen3.5-35b-a3b":    10,   # 40 total → 10 GatedAttn
     "qwen3.5-122b-a10b":  16,   # 64 total → 16 GatedAttn
     "qwen3.5-397b-a17b":  18,   # 72 total → 18 GatedAttn
     # Bonsai 27B (same Qwen3.6-27B architecture)
@@ -884,13 +888,19 @@ def fetch_running_models(host):
             # We'll get file size from the path
             model_file_mb = 0
             if model_path:
+                # Resolve glob wildcards in path (e.g. snapshots/*/model.gguf)
+                resolved_path = model_path if '*' not in model_path else None
+                import glob as _glob
+                candidates = _glob.glob(model_path)
+                if candidates:
+                    resolved_path = candidates[0]
                 try:
-                    model_file_mb = os.path.getsize(model_path) / (1024 * 1024)
+                    model_file_mb = os.path.getsize(resolved_path) / (1024 * 1024)
                 except OSError:
                     pass
-            # Parse cache type from -ctk flag
+            # Parse cache type from -ctk/--cache-type-k flag
             cache_type = None
-            ctk_match = re.search(r'-ctk\s+(\S+)', cmd)
+            ctk_match = re.search(r'(?:-ctk|--cache-type-k)\s+(\S+)', cmd)
             if ctk_match:
                 cache_type = ctk_match.group(1).lower()
             # Parse max context from -c flag
@@ -988,6 +998,7 @@ def fetch_running_models(host):
                 "batch_size": batch_size,
                 "ubatch_size": ubatch_size,
                 "all_flags": all_flags,
+                "proxy": item.get("proxy"),
             })
         return running
     except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
