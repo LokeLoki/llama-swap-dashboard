@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
 GPU Inference Dashboard for llama-swap.
+Auto-detects NVIDIA or AMD GPUs and applies matching theme.
 Polls nvidia-smi/amd-smi + /api/performance + /api/metrics for a clean terminal view.
 Press Ctrl+C to exit.
 
@@ -16,6 +17,7 @@ import dataclasses
 import json
 import os
 import re
+import shutil
 import subprocess
 import sys
 import time
@@ -93,13 +95,13 @@ CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboar
 
 # Refresh intervals (in cycles) for different data sources.
 # Set to 1 = every cycle, 2 = every other cycle, etc.
-# Local calls (nvidia-smi/amd-smi) are cheap — keep them fast.
+# Local calls (nvidia-smi) are cheap — keep them fast.
 # Network calls can be staggered to reduce overhead.
-REFRESH_GPU = 1         # nvidia-smi/amd-smi query (local, ~10ms)
+REFRESH_GPU = 1         # GPU-smi query (local, ~10ms)
 REFRESH_METRICS = 1     # /api/performance + /api/metrics (network)
 REFRESH_RUNNING = 3     # /running endpoint (network)
 REFRESH_OLLAMA = 5      # Ollama /api/ps (network)
-REFRESH_OLLAMA_ACTIVE = 3  # nvidia-smi/amd-smi compute apps (local, ~5ms)
+REFRESH_OLLAMA_ACTIVE = 3  # GPU-smi compute/apps (local, ~5ms)
 
 # Quantization pattern regex — matches common GGUF quant labels
 # Handles: Q4_K_M, Q5_K_XL, Q6_K, IQ4_XS, F16, BF16, etc.
@@ -263,15 +265,15 @@ RESET = "\033[0m"
 BOLD = "\033[1m"
 ITALIC = "\033[3m"
 CYAN = "\033[96m"
-SUBTLE_GREEN = "\033[38;5;22m"  # Dark muted green for section borders
 GREEN = "\033[92m"
-LIGHT_GREEN = "\033[1;92m"  # Bold bright green for decode values
+LIGHT_GREEN = "\033[1;92m"
+ORANGE = "\033[33m"
+LIGHT_ORANGE = "\033[1;33m"
 YELLOW = "\033[93m"
 RED = "\033[91m"
 DIM = "\033[90m"
 WHITE = "\033[97m"
 SOFT_WHITE = "\033[37m"
-
 
 
 # ── Backend detection ──────────────────────────────────
@@ -286,6 +288,7 @@ def detect_gpu_backend():
 
 BACKEND = detect_gpu_backend()
 
+
 def _theme():
     """Return (border_color, primary_color, primary_light) for current backend."""
     if BACKEND == "amd":
@@ -294,6 +297,8 @@ def _theme():
 
 BORDER, PRIMARY, PRIMARY_LIGHT = _theme()
 
+
+# ── Config ─────────────────────────────────────────────
 
 def load_config():
     """Load settings from dashboard.conf (simple key=value format)."""
@@ -439,51 +444,17 @@ def build_urls(host):
 # ── GPU stats ──────────────────────────────────────────
 
 def short_gpu_name(name):
-    """Extract a short GPU name from the full nvidia-smi name.
-    E.g. 'NVIDIA GeForce RTX 4070 Ti SUPER' -> '4070 Ti SUPER'
-    Falls back to the full name if no RTX found."""
+    """Extract a short GPU name from the full GPU name.
+    NVIDIA: 'NVIDIA GeForce RTX 4070 Ti SUPER' -> '4070 Ti SUPER'
+    AMD: 'AMD Radeon RX 7900 XTX' -> 'RX 7900 XTX' / 'AMD Instinct MI300X' -> 'MI300X'
+    Falls back to the full name if no prefix found."""
     if "RTX" in name:
         return name.split("RTX", 1)[-1].strip()
+    if "Radeon RX" in name:
+        return name.split("Radeon RX", 1)[-1].strip()
+    if "Instinct" in name:
+        return name.split("Instinct", 1)[-1].strip()
     return name
-
-
-
-def util_bar(pct, width=16):
-    """Draw a simple ASCII bar."""
-    filled = round(pct / 100 * width)
-    bar = "\u2588" * filled + "\u2591" * (width - filled)
-    return bar
-
-
-
-def color_temp(temp):
-    """Color-code temperature."""
-    if temp <= 67:
-        return GREEN
-    elif temp <= 75:
-        return YELLOW
-    return RED
-
-
-
-def format_duration(ms):
-    """Format milliseconds to human-readable."""
-    if ms >= 1000:
-        return f"{ms / 1000:.1f}s"
-    return f"{ms}ms"
-
-
-
-def format_time(ts_str):
-    """Format ISO timestamp to short time string."""
-    try:
-        dt = datetime.fromisoformat(ts_str)
-        return dt.strftime("%H:%M:%S")
-    except (ValueError, TypeError):
-        return ts_str[-8:]
-
-
-# ── API queries ────────────────────────────────────────
 
 
 def get_nvidia_smi():
@@ -496,40 +467,31 @@ def get_nvidia_smi():
                 "memory.used,memory.total,fan.speed,power.draw",
                 "--format=csv,noheader,nounits",
             ],
-            capture_output=True,
-            text=True,
-            timeout=5,
+            capture_output=True, text=True, timeout=5,
         )
         gpus = []
         for line in result.stdout.strip().split("\n"):
             parts = [p.strip() for p in line.split(",")]
             if len(parts) >= 8:
-                def _safe_int(val, default=0):
-                    try:
-                        return int(val)
-                    except ValueError:
-                        return default
-                def _safe_float(val, default=0.0):
-                    try:
-                        return float(val)
-                    except ValueError:
-                        return default
+                def _si(val, d=0):
+                    try: return int(val)
+                    except ValueError: return d
+                def _sf(val, d=0.0):
+                    try: return float(val)
+                    except ValueError: return d
                 gpus.append(GpuStats(
-                    id=_safe_int(parts[0]),
+                    id=_si(parts[0]),
                     name=short_gpu_name(parts[1]),
-                    temp_c=_safe_int(parts[2]),
-                    gpu_util_pct=_safe_int(parts[3]),
-                    mem_used_mb=_safe_int(parts[4]),
-                    mem_total_mb=_safe_int(parts[5]),
-                    fan_pct=_safe_int(parts[6]),
-                    power_w=_safe_float(parts[7]),
+                    temp_c=_si(parts[2]),
+                    gpu_util_pct=_si(parts[3]),
+                    mem_used_mb=_si(parts[4]),
+                    mem_total_mb=_si(parts[5]),
+                    fan_pct=_si(parts[6]),
+                    power_w=_sf(parts[7]),
                 ))
         return gpus
     except (subprocess.SubprocessError, OSError):
-        return None  # nvidia-smi not available or timed out
-
-
-# ── llama-swap API ─────────────────────────────────────
+        return None
 
 
 def get_amd_gpu_names():
@@ -537,107 +499,110 @@ def get_amd_gpu_names():
     try:
         list_result = subprocess.run(
             ["amd-smi", "list", "--json"],
-            capture_output=True,
-            text=True,
-            timeout=5,
+            capture_output=True, text=True, timeout=5,
         )
         list_data = json.loads(list_result.stdout)
         gpu_names = {}
         for gpu in list_data.get("gpu_data", []):
             idx = gpu.get("gpu", 0)
-            name = (
-                gpu.get("name")
-                or gpu.get("gpu_name")
-                or gpu.get("part_number", "AMD GPU")
-            )
+            name = gpu.get("name") or gpu.get("gpu_name") or gpu.get("part_number", "AMD GPU")
             gpu_names[idx] = name
         return gpu_names
     except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
-        return {}  # amd-smi list failed
-
+        return {}
 
 
 def get_amd_smi(gpu_names=None):
-    """Query amd-smi for current GPU stats.
-    Uses JSON output for reliable parsing:
-      amd-smi metric --usage --power --temperature --mem-usage --fan --json
-    GPU names are cached from a startup call to amd-smi list --json to avoid
-    redundant subprocess overhead on every loop iteration.
-    """
+    """Query amd-smi for current GPU stats."""
     if gpu_names is None:
         gpu_names = {}
     try:
-        # Get metrics (usage, power, temperature, memory, fan)
         metric_result = subprocess.run(
-            [
-                "amd-smi", "metric",
-                "--usage", "--power", "--temperature",
-                "--mem-usage", "--fan",
-                "--json",
-            ],
-            capture_output=True,
-            text=True,
-            timeout=5,
+            ["amd-smi", "metric", "--usage", "--power", "--temperature",
+             "--mem-usage", "--fan", "--json"],
+            capture_output=True, text=True, timeout=5,
         )
         metric_data = json.loads(metric_result.stdout)
         gpus = []
         for gpu in metric_data.get("gpu_data", []):
             idx = gpu.get("gpu", 0)
-
-            # GFX activity (GPU utilization)
             usage = gpu.get("usage", {})
             gfx_activity = 0
-            gfx_val = usage.get("GFX_ACTIVITY")
-            if gfx_val:
-                gfx_activity = int(str(gfx_val).rstrip("%"))
-
-            # Temperature (Edge)
+            gv = usage.get("GFX_ACTIVITY")
+            if gv:
+                gfx_activity = int(str(gv).rstrip("%"))
             temp = 0
-            temp_data = gpu.get("temperature", {})
-            edge_val = temp_data.get("EDGE")
-            if edge_val and str(edge_val).upper() != "N/A":
-                temp = int(str(edge_val).replace("°C", "").strip())
-
-            # Memory usage
-            mem_usage = gpu.get("mem_usage") or {}
-            mem_used_mb = int(str(mem_usage.get("USED_VRAM", 0)).replace("MB", "").strip())
-            mem_total_mb = int(str(mem_usage.get("TOTAL_VRAM", 0)).replace("MB", "").strip())
-
-            # Power
+            td = gpu.get("temperature", {})
+            ev = td.get("EDGE")
+            if ev and str(ev).upper() != "N/A":
+                temp = int(str(ev).replace("°C", "").strip())
+            mu = gpu.get("mem_usage") or {}
+            mem_used = int(str(mu.get("USED_VRAM", 0)).replace("MB", "").strip())
+            mem_total = int(str(mu.get("TOTAL_VRAM", 0)).replace("MB", "").strip())
             power = 0.0
-            power_data = gpu.get("power", {})
-            sock_power = power_data.get("SOCKET_POWER")
-            if sock_power:
-                power = float(str(sock_power).replace("W", "").strip())
-
-            # Fan speed
+            pd_ = gpu.get("power", {})
+            sp = pd_.get("SOCKET_POWER")
+            if sp:
+                power = float(str(sp).replace("W", "").strip())
             fan = 0
-            fan_data = gpu.get("fan", {})
-            fan_val = fan_data.get("SPEED")
-            if fan_val and str(fan_val).upper() != "N/A":
-                fan = int(str(fan_val).rstrip("%"))
-
+            fd = gpu.get("fan", {})
+            fv = fd.get("SPEED")
+            if fv and str(fv).upper() != "N/A":
+                fan = int(str(fv).rstrip("%"))
             gpus.append(GpuStats(
                 id=idx,
                 name=short_gpu_name(gpu_names.get(idx, f"AMD GPU {idx}")),
                 temp_c=temp,
                 gpu_util_pct=gfx_activity,
-                mem_used_mb=mem_used_mb,
-                mem_total_mb=mem_total_mb,
+                mem_used_mb=mem_used,
+                mem_total_mb=mem_total,
                 fan_pct=fan,
                 power_w=power,
             ))
         return gpus
     except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
-        return None  # amd-smi not available or timed out
+        return None
 
 
-
-def get_gpu_stats():
-    """Get GPU stats from the detected backend."""
+def get_gpu_stats(gpu_names=None):
+    """Router: get GPU stats from detected backend."""
     if BACKEND == "amd":
-        return get_amd_smi(get_amd_gpu_names())
+        return get_amd_smi(gpu_names)
     return get_nvidia_smi()
+
+# ── Helpers ──────────────────────────────────────
+
+def util_bar(pct, width=16):
+    """Draw a simple ASCII bar."""
+    filled = round(pct / 100 * width)
+    bar = "█" * filled + "░" * (width - filled)
+    return bar
+
+
+def color_temp(temp):
+    """Color-code temperature."""
+    if temp <= 67:
+        return GREEN
+    elif temp <= 75:
+        return YELLOW
+    return RED
+
+
+def format_duration(ms):
+    """Format milliseconds to human-readable."""
+    if ms >= 1000:
+        return f"{ms / 1000:.1f}s"
+    return f"{ms}ms"
+
+
+def format_time(ts_str):
+    """Format ISO timestamp to short time string."""
+    try:
+        dt = datetime.fromisoformat(ts_str)
+        return dt.strftime("%H:%M:%S")
+    except (ValueError, TypeError):
+        return ts_str[-8:]
+
 
 # ── llama-swap API ─────────────────────────────────────
 
@@ -682,13 +647,8 @@ def get_auxiliary_model(aux_port=DEFAULT_AUX_PORT):
         return None  # Ollama /api/ps unavailable
 
 
-def get_main_active():
-    """Check if llama-server is actively using a GPU."""
-    return get_main_active_nv()
-
-
 def get_ollama_active_nv():
-    """Check if Ollama process is actively using a GPU via nvidia-smi compute apps."""
+    """Check if Ollama process is actively using a GPU via nvidia-smi."""
     try:
         result = subprocess.run(
             ["nvidia-smi", "--query-compute-apps=name", "--format=csv,noheader"],
@@ -703,9 +663,8 @@ def get_ollama_active_nv():
     return False
 
 
-
 def get_ollama_active_amd():
-    """Check if Ollama process is actively using a GPU via amd-smi process list."""
+    """Check if Ollama process is actively using a GPU via amd-smi."""
     try:
         result = subprocess.run(
             ["amd-smi", "process", "--json"],
@@ -713,8 +672,8 @@ def get_ollama_active_amd():
         )
         if result.returncode == 0:
             data = json.loads(result.stdout)
-            for gpu_data in data.get("gpu_data", []):
-                for proc in gpu_data.get("processes", []):
+            for gd in data.get("gpu_data", []):
+                for proc in gd.get("processes", []):
                     if "ollama" in proc.get("name", "").lower():
                         return True
     except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
@@ -722,12 +681,12 @@ def get_ollama_active_amd():
     return False
 
 
-
 def get_ollama_active():
-    """Check if Ollama process is actively using a GPU."""
+    """Router: check if Ollama is actively using the GPU."""
     if BACKEND == "amd":
         return get_ollama_active_amd()
     return get_ollama_active_nv()
+
 
 def fetch_running_models(host):
     """Fetch running models from llama-swap /running endpoint.
@@ -1008,6 +967,17 @@ def calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, num_tokens, iswa_w
     return bytes_total / (1024 * 1024)
 
 
+def _parse_spec_draft_n_max(cmd):
+    """Parse --spec-draft-n-max from command string. Returns 0 if not set."""
+    m = re.search(r"--spec-draft-n-max\s+(\d+)", cmd)
+    if m:
+        try:
+            return int(m.group(1))
+        except ValueError:
+            pass
+    return 0
+
+
 def get_cache_bytes(cache_type, model_quant):
     """Determine bytes per element for KV cache.
     Uses explicit cache type if set, otherwise defaults to F16 (llama.cpp default)."""
@@ -1030,29 +1000,18 @@ def get_inference_state(valid_metrics, gpus):
     return "active" if active_gpus else "idle"
 
 
-def get_main_active_nv():
-    """Check if llama-server is actively using a GPU via nvidia-smi compute apps."""
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-compute-apps=name", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=2,
-        )
-        if result.returncode == 0:
-            for line in result.stdout.strip().split("\n"):
-                if "llama-server" in line.lower():
-                    return True
-    except (subprocess.SubprocessError, OSError):
-        pass
-    return False
+def get_aux_state(aux_info, aux_port, ollama_active=None):
+    """Detect if the auxiliary model is currently active.
+    Uses cached ollama_active state to avoid repeated API calls.
+    Returns 'active' or 'idle'."""
+    if not aux_info:
+        return "idle"
+    if ollama_active is True:
+        return "active"
+    return "idle"
 
 
-def get_main_active():
-    """Check if llama-server is actively using a GPU."""
-    return get_main_active_nv()
-
-
-def get_ollama_active():
-    """Check if Ollama process is actively using a GPU via nvidia-smi compute apps."""
+def get_main_model_vram(running_models, valid_metrics):
     """Calculate main model VRAM: weights + mmproj + draft + KV cache (capped by --cache-ram).
     Returns MainModelVram or None."""
     if not running_models:
@@ -1299,8 +1258,20 @@ def get_last_metrics(valid_metrics, count=1):
 LOOKBACK_CAP = 500
 
 
+def _percentile(sorted_vals, pct):
+    """Compute a percentile from a sorted list (0-100)."""
+    if not sorted_vals:
+        return 0
+    k = (len(sorted_vals) - 1) * (pct / 100)
+    f = int(k)
+    c = f + 1
+    if c >= len(sorted_vals):
+        return sorted_vals[f]
+    return sorted_vals[f] + (k - f) * (sorted_vals[c] - sorted_vals[f])
+
+
 def get_metrics_by_bucket(valid_metrics):
-    """Get average t/s per token bucket.
+    """Get p50/p90 t/s per token bucket.
 
     Always scans the last LOOKBACK_CAP metrics — sliding window so recent
     performance dominates. Active model only, uncached prompts.
@@ -1314,7 +1285,11 @@ def get_metrics_by_bucket(valid_metrics):
         and m.get("tokens", {}).get("cache_tokens", 0) == 0
     ]
 
-    bucket_vals = {}
+    # Collect all samples per bucket
+    bucket_samples = {}
+    for label, mn, mx in TOKEN_BUCKETS:
+        bucket_samples[label] = {"bucket_key": mn, "pps": [], "dps": [], "tok_out": []}
+
     for m in uncached:
         input_tok = m.get("tokens", {}).get("input_tokens", 0)
         output_tok = m.get("tokens", {}).get("output_tokens", 0)
@@ -1323,26 +1298,31 @@ def get_metrics_by_bucket(valid_metrics):
         dps = m.get("tokens", {}).get("tokens_per_second", 0)
         for label, mn, mx in TOKEN_BUCKETS:
             if mn <= seq_len <= mx:
-                existing = bucket_vals.get(label)
-                if existing is None or dps > existing["best_d"]:
-                    bucket_vals[label] = {
-                        "bucket_key": mn,
-                        "label": seq_len,
-                        "prompt_per_second": pps,
-                        "tokens_per_second": dps,
-                        "best_d": dps,
-                    }
+                bucket_samples[label]["pps"].append(pps)
+                bucket_samples[label]["dps"].append(dps)
+                bucket_samples[label]["tok_out"].append(output_tok)
                 break
 
-    # Sort by bucket boundary, keep actual token count as display label
-    sorted_buckets = sorted(bucket_vals.items(), key=lambda x: x[1]["bucket_key"])
-    return {
-        s["label"]: {
-            "bucket_key": s["bucket_key"],
-            "prompt_per_second": s["prompt_per_second"],
-            "tokens_per_second": s["tokens_per_second"],
+    # Compute percentiles per populated bucket
+    result = {}
+    for label, samples in bucket_samples.items():
+        dps_list = sorted(samples["dps"])
+        pps_list = sorted(samples["pps"])
+        if not dps_list:
+            continue
+        result[label] = {
+            "bucket_key": samples["bucket_key"],
+            "prompt_median": _percentile(pps_list, 50),
+            "decode_p50": _percentile(dps_list, 50),
+            "decode_p90": _percentile(dps_list, 90),
+            "count": len(dps_list),
+            "total_tokens": sum(samples["tok_out"]),
         }
-        for label, s in sorted_buckets
+
+    # Sort by bucket boundary
+    sorted_buckets = sorted(result.values(), key=lambda x: x["bucket_key"])
+    return {
+        s["bucket_key"]: s for s in sorted_buckets
     }
 
 
@@ -1393,8 +1373,8 @@ def render_prompt_log(valid_metrics, running_models=None, num_prompts=3):
 
         lines.append(
             f"  {DIM}[{req_time}]{RESET} {BOLD}{model}{RESET} "
-            f"{DIM}│{RESET} {DIM}decode:{RESET} {LIGHT_GREEN}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET} "
-            f"{DIM}│{RESET} {DIM}prompt:{RESET} {GREEN}{prompt_tps:.0f}{RESET}{WHITE}pp{RESET} "
+            f"{DIM}│{RESET} {DIM}decode:{RESET} {PRIMARY_LIGHT}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET} "
+            f"{DIM}│{RESET} {DIM}prompt:{RESET} {PRIMARY}{prompt_tps:.0f}{RESET}{WHITE}pp{RESET} "
             f"{DIM}│{RESET} {DIM}{format_duration(duration)}{RESET}"
         )
         lines.append(
@@ -1408,69 +1388,62 @@ def render_prompt_log(valid_metrics, running_models=None, num_prompts=3):
 
 
 def render_chart(buckets):
-    """Render a unified chart showing prompt bar + decode value by context size."""
+    """Render decode p50/p90 range bar by context size."""
     lines = []
-    max_prompt = 0
-    max_decode = 0
+    max_p90 = 0
     populated = []
-    # Sort by bucket_key (boundary), not by display label
-    for ctx, data in sorted(buckets.items(), key=lambda x: x[1].get("bucket_key", 0)):
-        pps = data.get("prompt_per_second", 0)
-        dps = data.get("tokens_per_second", 0)
-        bucket_key = data.get("bucket_key", ctx)
-        populated.append((ctx, bucket_key, pps, dps))
-        if pps > max_prompt:
-            max_prompt = pps
-        if dps > max_decode:
-            max_decode = dps
+    for bucket_key, data in sorted(buckets.items()):
+        p50 = data.get("decode_p50", 0)
+        p90 = data.get("decode_p90", 0)
+        populated.append((bucket_key, p50, p90, data))
+        if p90 > max_p90:
+            max_p90 = p90
 
     if not populated:
         return lines
 
     bar_width = 20
-    lines.append(f"  {BOLD}{SUBTLE_GREEN}{'═' * 56}{RESET}")
+    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append(f"  {BOLD}  t/s by context size{RESET}")
+    lines.append(f"  {BOLD}{DIM}{'─' * 56}{RESET}")
+    lines.append(f"  {DIM}  █ p50  ▒ p90{RESET}")
     lines.append(f"  {BOLD}{DIM}{'─' * 56}{RESET}")
 
     # Open-ended bucket start value (last in TOKEN_BUCKETS)
     open_ended = TOKEN_BUCKETS[-1][1] if TOKEN_BUCKETS else None
 
-    for ctx, bucket_key, pps, dps in populated:
-        if pps <= 0 and dps <= 0:
+    for bucket_key, p50, p90, data in populated:
+        if p50 <= 0:
             continue
-        # Context label — format real token count with k/M suffix
-        ctx_str = _fmt_num(ctx)
+        # Context label
+        ctx_str = _fmt_num(bucket_key)
         if open_ended and bucket_key == open_ended:
             ctx_str += "+"
         ctx_display = f"{ctx_str:>5}"
 
-        # Prompt bar — pad visible chars, then color
-        if pps > 0:
-            p_len = max(1, round((pps / max_prompt) * bar_width)) if max_prompt > 0 else 1
-            p_bar_raw = "\u2588" * p_len + " " * (bar_width - p_len)
-            p_color = WHITE
-            p_num = f"{GREEN}{pps:.0f}{RESET}"
-            p_unit = f"{WHITE}pp{RESET}"
+        # Decode range bar: solid = p50, dim = p50→p90 tail
+        if max_p90 > 0:
+            solid_len = max(1, round((p50 / max_p90) * bar_width))
+            total_len = max(solid_len, round((p90 / max_p90) * bar_width))
+            tail_len = total_len - solid_len
+            d_bar = "\u2588" * solid_len + "\u2592" * tail_len + " " * (bar_width - total_len)
         else:
-            p_bar_raw = "\u2591" * bar_width
-            p_color = DIM
-            p_num = f"{DIM}---{RESET}"
-            p_unit = f"{DIM}pp{RESET}"
+            d_bar = "\u2591" * bar_width
 
-        # Decode value — pad visible chars, then color
-        if dps > 0:
-            d_num = f"{LIGHT_GREEN}{dps:.0f}{RESET}"
-            d_unit = f"{WHITE}t/s{RESET}"
-        else:
-            d_num = f"{DIM}      {RESET}"
-            d_unit = f"{DIM}t/s{RESET}"
+        d_range = f"{PRIMARY_LIGHT}{p50:.0f}{RESET}-{PRIMARY}{p90:.0f}{RESET}"
+        d_unit = f"{WHITE}t/s{RESET}"
 
-        # Pad plain text first, then wrap with color — prevents ANSI from breaking alignment
+        # Sample count / total tokens
+        count = data.get("count", 0)
+        total_tok = data.get("total_tokens", 0)
+        tok_str = _fmt_num(total_tok) if total_tok > 0 else ""
+        count_str = f"[{count}]"
+        tok_display = f"{tok_str}{tok_str and 't' or ''}" if tok_str else ""
+
         ctx_cell = f"{DIM}{ctx_display}{RESET}"
-        bar_cell = f"{p_color}{p_bar_raw}{RESET}"
-        lines.append(f"  {ctx_cell} │ {bar_cell} {d_num}{d_unit} │ {p_num}{p_unit}")
+        lines.append(f"  {ctx_cell} │ {d_bar} {d_range}{d_unit}  {DIM}{count_str} {tok_display}{RESET}")
 
-    lines.append(f"  {BOLD}{SUBTLE_GREEN}{'═' * 56}{RESET}")
+    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     return lines
 
 
@@ -1488,22 +1461,20 @@ def _fmt_num(n):
     return str(n)
 
 
-def _format_metric_line(label, vram_str, decode_tps, align_visible=40, is_aux=False, spinner_frame=0, aux_active=False):
-    """Format a single metric line with aligned decode values."""
-    if decode_tps > 0:
-        decode_str = f"{DIM}decode: {RESET}{LIGHT_GREEN}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET}"
-    elif is_aux:
-        spinner = [" ", "◐", "◑"]
-        spinner_color = GREEN if aux_active else DIM  # invisible space when idle
-        decode_str = f"{spinner_color}{spinner[spinner_frame % 4]}{RESET}"
-    else:
-        decode_str = f"{DIM}—{RESET}"
+def _inference_spinner(spinner_frame, active):
+    """Return a spinner character for inference/decode activity indicator."""
+    spinner = [" ", "◐", "◑", "◓"]
+    return f"{PRIMARY}{spinner[spinner_frame % 4]}{RESET}" if active else f"{DIM}◉{RESET}"
+
+
+def _format_metric_line(label, vram_str, active=True, is_aux=False, spinner_frame=0):
+    """Format a single metric line with left-aligned spinner.
+    Both main model and aux get a spinner on the same line.
+    """
+    spinner = _inference_spinner(spinner_frame, active)
     if vram_str:
-        prefix = f"{BOLD}{label}{RESET} {SOFT_WHITE}{vram_str}{RESET}"
-    else:
-        prefix = f"{BOLD}{label}{RESET}"
-    pad = max(1, align_visible - _visible_len(prefix))
-    return f"  {prefix}{' ' * pad}{decode_str}"
+        return f"  {spinner}  {BOLD}{label}{RESET} {SOFT_WHITE}{vram_str}{RESET}"
+    return f"  {spinner}  {BOLD}{label}{RESET}"
 
 
 
@@ -1526,19 +1497,20 @@ def render_main_model_decode(valid_metrics, sys_info):
     return lines, decode_tps
 
 
-def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, session_totals, identity=None, host=None, aux_port=None, running_models=None, num_prompts=3, spinner_frame=0, ollama_active=False, main_active=False):
+def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, session_totals, identity=None, host=None, aux_port=None, running_models=None, num_prompts=3, spinner_frame=0, ollama_active=False):
     """Render the dashboard."""
     sys.stdout.write("\033[H\033[0J")
     now = time.strftime("%H:%M:%S")
     lines = []
 
-    lines.append(f" {BOLD}{SUBTLE_GREEN}{'═' * 56}{RESET}")
+    lines.append(f" {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append(f" {BOLD}  llama-swap Dashboard{RESET}  {now}")
-    lines.append(f" {BOLD}{SUBTLE_GREEN}{'═' * 56}{RESET}")
+    lines.append(f" {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append("")
 
     if not gpus:
-        lines.append(f"  {RED}nvidia-smi not available{RESET}")
+        smi_name = "amd-smi" if BACKEND == "amd" else "nvidia-smi"
+        lines.append(f"  {RED}{smi_name} not available{RESET}")
         sys.stdout.write("\n".join(lines))
         sys.stdout.flush()
         return
@@ -1553,8 +1525,8 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         mem_pct = (mem_used / mem_total * 100) if mem_total else 0
 
         if util >= 5:
-            status = f"{GREEN}● ACTIVE{RESET}"
-            status_color = GREEN
+            status = f"{PRIMARY}● ACTIVE{RESET}"
+            status_color = PRIMARY
         else:
             status = f"{DIM}● IDLE{RESET}"
             status_color = DIM
@@ -1599,7 +1571,8 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     else:
         model_label = f"— ({host.split(':')[-1] if ':' in host else '8080'})"
     # Inference state
-    lines.append(_format_metric_line(model_label, main_vram_str, 0, is_aux=True, spinner_frame=spinner_frame, aux_active=main_active))
+    main_state = get_inference_state(valid_metrics, gpus) if valid_metrics else None
+    lines.append(_format_metric_line(model_label, main_vram_str, active=decode_tps > 0, spinner_frame=spinner_frame))
     if aux_info:
         aux_name = aux_info.name
         aux_short = aux_name.split(":")[0]
@@ -1608,9 +1581,9 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         aux_vram_str = f"{aux_total_mb / 1024:.1f} GB"
         aux_state = get_aux_state(aux_info, aux_port, ollama_active)
         aux_active = ollama_active
-        lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", aux_vram_str, aux_tps, is_aux=True, spinner_frame=spinner_frame, aux_active=aux_active))
+        lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", aux_vram_str, active=aux_active, is_aux=True, spinner_frame=spinner_frame))
     else:
-        lines.append(f"  {BOLD}Ollama Aux ({aux_port}){RESET}  {DIM}offline{RESET}")
+        lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", None, active=False, is_aux=True, spinner_frame=spinner_frame))
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
     lines.append("")
 
@@ -1637,7 +1610,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         f"reqs: {total_reqs}{RESET}"
     )
 
-    lines.append(f" {BOLD}{SUBTLE_GREEN}{'═' * 56}{RESET}")
+    lines.append(f" {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append(token_line)
 
     # Subtle footer: full model path
@@ -1662,6 +1635,9 @@ def main():
     config_yaml = get_config_yaml(config)
     aux_port = get_aux_port(config)
 
+    # Cache GPU names once at startup (AMD only, names never change)
+    gpu_names = get_amd_gpu_names() if BACKEND == "amd" else {}
+
     # Incremental state
     session_totals = {"in": 0, "out": 0, "reqs": 0}
     prev_count = 0
@@ -1669,7 +1645,6 @@ def main():
     num_prompts = 3  # Default: show last 3 prompts
     chart_metrics = []  # Metrics used for the chart (resettable via Ctrl+R)
     spinner_frame = 0  # Animation frame for aux indicator
-    main_active = False  # Cached main model active state
     ollama_active = False  # Cached Ollama active state
     gpus = []
     sys_info = {}
@@ -1679,7 +1654,8 @@ def main():
 
     if config_yaml:
         print(f"Model config loaded: {config_yaml}")
-    print("GPU Dashboard starting...")
+    backend_str = BACKEND.upper() if BACKEND else "UNKNOWN"
+    print(f"GPU Dashboard starting... [{backend_str}]")
     print("Press Ctrl+C to exit.\n")
     loop_frame = 0  # Cycle counter for staggered refresh
 
@@ -1691,7 +1667,7 @@ def main():
 
         # GPU stats — every REFRESH_GPU cycles (local, cheap)
         if loop_frame % REFRESH_GPU == 0:
-            gpus = get_gpu_stats()
+            gpus = get_gpu_stats(gpu_names)
 
         # Network metrics — every REFRESH_METRICS cycles
         if loop_frame % REFRESH_METRICS == 0:
@@ -1706,9 +1682,9 @@ def main():
         if loop_frame % REFRESH_OLLAMA == 0:
             aux_info = get_auxiliary_model(aux_port)
 
-        # Main + Ollama active check — every REFRESH_OLLAMA_ACTIVE cycles (local)
+        # Ollama active check — every REFRESH_OLLAMA_ACTIVE cycles (local)
         if loop_frame % REFRESH_OLLAMA_ACTIVE == 0:
-            main_active = get_main_active()
+            ollama_active = get_ollama_active()
 
         valid = filter_valid(metrics)
 
@@ -1737,7 +1713,7 @@ def main():
 
         buckets = get_metrics_by_bucket(chart_metrics)
         identity = get_active_model_identity(valid, config_yaml)
-        render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active, main_active=main_active)
+        render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
 
         # Increment spinner frame for next cycle
         spinner_frame += 1
@@ -1758,7 +1734,7 @@ def main():
                 # Re-render instantly with cached data
                 buckets = get_metrics_by_bucket(chart_metrics)
                 identity = get_active_model_identity(valid, config_yaml)
-                render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active, main_active=main_active)
+                render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
                 spinner_frame += 1
             time.sleep(0.05)
 
