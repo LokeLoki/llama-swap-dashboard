@@ -286,8 +286,8 @@ def load_config():
                     if line and not line.startswith("#") and "=" in line:
                         key, _, value = line.partition("=")
                         config[key.strip()] = value.strip()
-        except Exception:
-            pass
+        except (OSError, IOError):
+            pass  # Config file missing or unreadable
     return config
 
 
@@ -305,8 +305,8 @@ def save_config(host, config_yaml="", aux_port=DEFAULT_AUX_PORT):
             f.write(f"host={host}\n")
             f.write(f"config_yaml={config_yaml}\n")
             f.write(f"aux_port={aux_port}\n")
-    except Exception:
-        pass
+    except (OSError, IOError):
+        pass  # Config file write failed
 
 
 def get_config_yaml(config):
@@ -336,7 +336,7 @@ def check_host(host):
         req = urllib.request.Request(url)
         with urllib.request.urlopen(req, timeout=3) as resp:
             return resp.status == 200
-    except Exception:
+    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
         return False
 
 
@@ -455,7 +455,7 @@ def format_time(ts_str):
     try:
         dt = datetime.fromisoformat(ts_str)
         return dt.strftime("%H:%M:%S")
-    except Exception:
+    except (ValueError, TypeError):
         return ts_str[-8:]
 
 
@@ -500,8 +500,8 @@ def get_nvidia_smi():
                     power_w=_safe_float(parts[7]),
                 ))
         return gpus
-    except Exception:
-        return None
+    except (subprocess.SubprocessError, OSError):
+        return None  # nvidia-smi not available or timed out
 
 
 # ── llama-swap API ─────────────────────────────────────
@@ -519,7 +519,7 @@ def get_llama_swap_stats(api_url):
                 mem_used_mb=latest.get("mem_used_mb", 0),
                 mem_total_mb=latest.get("mem_total_mb", 0),
             )
-    except Exception:
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
         pass
     return None
 
@@ -543,8 +543,8 @@ def get_auxiliary_model(aux_port=DEFAULT_AUX_PORT):
             context_length=m.get("context_length", 0),
             decode_tps=0,  # No probe — just report loaded state
         )
-    except Exception:
-        return None
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
+        return None  # Ollama /api/ps unavailable
 
 
 def get_ollama_active():
@@ -558,10 +558,9 @@ def get_ollama_active():
             for line in result.stdout.strip().split("\n"):
                 if "ollama" in line.lower():
                     return True
-    except Exception:
+    except (subprocess.SubprocessError, OSError):
         pass
     return False
-    return None
 
 
 def fetch_running_models(host):
@@ -688,8 +687,8 @@ def fetch_running_models(host):
                 "all_flags": all_flags,
             })
         return running
-    except Exception:
-        return None
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
+        return None  # llama-swap /running unavailable
 
 
 def short_model_name(model_path_or_id):
@@ -1019,8 +1018,8 @@ def get_aux_vram(aux_info, aux_port):
             total = weight_mb + cache_mb
             get_aux_vram._cache = {"name": aux_info.name, "total_mb": total}
             return total
-    except Exception:
-        pass
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, OSError, TimeoutError):
+        pass  # Ollama API or file read failed
     # Fallback: just return weight size
     return weight_mb
 
@@ -1031,8 +1030,8 @@ def fetch_metrics(metrics_url):
         req = urllib.request.Request(metrics_url)
         with urllib.request.urlopen(req, timeout=5) as resp:
             return json.loads(resp.read())
-    except Exception:
-        return []
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
+        return []  # Metrics endpoint unavailable
 
 
 def filter_valid(metrics):
@@ -1085,8 +1084,8 @@ def _parse_yaml_models_simple(yaml_path):
                         model_map[current_model] = m_match.group(1)
                         current_model = None
         return model_map
-    except Exception:
-        return {}
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
+        return {}  # Ollama /api/ps unavailable
 
 
 def get_active_model_identity(valid_metrics, config_yaml_path=None):
