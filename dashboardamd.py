@@ -262,7 +262,7 @@ RESET = "\033[0m"
 BOLD = "\033[1m"
 ITALIC = "\033[3m"
 CYAN = "\033[96m"
-SUBTLE_GREEN = "\033[38;5;22m"  # Dark muted green for section borders
+SUBTLE_RED = "\033[38;5;52m"  # Dark muted red for section borders
 GREEN = "\033[92m"
 ORANGE = "\033[33m"
 LIGHT_GREEN = "\033[1;92m"  # Bold bright green for decode values
@@ -1307,7 +1307,7 @@ def render_chart(buckets):
         return lines
 
     bar_width = 20
-    lines.append(f"  {BOLD}{SUBTLE_GREEN}{'═' * 56}{RESET}")
+    lines.append(f"  {BOLD}{SUBTLE_RED}{'═' * 56}{RESET}")
     lines.append(f"  {BOLD}  t/s by context size{RESET}")
     lines.append(f"  {BOLD}{DIM}{'─' * 56}{RESET}")
 
@@ -1349,7 +1349,7 @@ def render_chart(buckets):
         bar_cell = f"{p_color}{p_bar_raw}{RESET}"
         lines.append(f"  {ctx_cell} │ {bar_cell} {d_num}{d_unit} │ {p_num}{p_unit}")
 
-    lines.append(f"  {BOLD}{SUBTLE_GREEN}{'═' * 56}{RESET}")
+    lines.append(f"  {BOLD}{SUBTLE_RED}{'═' * 56}{RESET}")
     return lines
 
 
@@ -1411,9 +1411,9 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     now = time.strftime("%H:%M:%S")
     lines = []
 
-    lines.append(f" {BOLD}{SUBTLE_GREEN}{'═' * 56}{RESET}")
+    lines.append(f" {BOLD}{SUBTLE_RED}{'═' * 56}{RESET}")
     lines.append(f" {BOLD}  llama-swap Dashboard{RESET}  {now}")
-    lines.append(f" {BOLD}{SUBTLE_GREEN}{'═' * 56}{RESET}")
+    lines.append(f" {BOLD}{SUBTLE_RED}{'═' * 56}{RESET}")
     lines.append("")
 
     if not gpus:
@@ -1517,7 +1517,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         f"reqs: {total_reqs}{RESET}"
     )
 
-    lines.append(f" {BOLD}{SUBTLE_GREEN}{'═' * 56}{RESET}")
+    lines.append(f" {BOLD}{SUBTLE_RED}{'═' * 56}{RESET}")
     lines.append(token_line)
 
     # Subtle footer: full model path
