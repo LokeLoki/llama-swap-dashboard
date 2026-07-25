@@ -800,6 +800,8 @@ def short_model_name(model_path_or_id):
         match = re.match(r'^([a-z]+)', text.split('/')[-1])
         if match:
             family = match.group(1)[:2]
+        else:
+            family = "M"  # Universal fallback
 
     # Detect Gemma E-variant (E4B, E2B) — these use 'e' prefix
     e_var = re.search(r'e(\d+)b', text)
@@ -815,22 +817,22 @@ def short_model_name(model_path_or_id):
         # Detect MoE AxB pattern (e.g., A3B, A10B, A17B)
         moe = re.search(r'a(\d+)b', text)
         if moe:
-            return f"{family[0].upper()}{family[1:]}{param_str}a{moe.group(1)}"
+            return f"{family.capitalize()}{param_str}a{moe.group(1)}"
 
         # DeepSeek R variants
-        if family == 'd' and 'r' in text[:15]:
+        if family == 'd' and ('r1' in text or '-r' in text[:15]):
             return f"Dr{param_str}"
 
-        return f"{family[0].upper()}{family[1:]}{param_str}"
+        return f"{family.capitalize()}{param_str}"
     if tparams:
         # Trillion-param models get "T" denotation
         t_str = tparams.group(1)
 
         moe = re.search(r'a(\d+)b', text)
         if moe:
-            return f"{family[0].upper()}{family[1:]}{t_str}Ta{moe.group(1)}"
+            return f"{family.capitalize()}{t_str}Ta{moe.group(1)}"
 
-        return f"{family[0].upper()}{family[1:]}{t_str}T"
+        return f"{family.capitalize()}{t_str}T"
 
     # Handle models without "XB" or "XT" param suffix in filename
     # (e.g., Kimi-K2-Instruct-Q4_K_M.gguf, GLM-5.2-Instruct-Q4_K_M.gguf)
