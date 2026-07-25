@@ -320,13 +320,17 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
     # 1. CUDA context overhead per active GPU (~350 MB flat, consumer GPU average)
     cuda_context_total = 350.0 * num_active_gpus
 
-    # 2. Compute buffer — uniform per GPU, proportional to model size.
+    # 2. Compute buffer — scales with ubatch and effective compute size.
     #    Verified from llama.cpp May/July 2026 issues: total observed for
     #    27B/ubatch=512/2 GPUs = 1308 MB (issue #23894: 325 + 983).
     #    Discussion #20252 (July 2026): 2 GPUs = 990 MB total (556 + 434).
     #    Per GPU average: 100 + ubatch × 1.08. Total matters for VRAM estimate;
     #    per-GPU distribution varies by layer fraction and split ratio.
-    #    Scales linearly with model size (hidden dim × layer count).
+    #
+    #    Architecture corrections:
+    #    - MoE: buffer scales with ACTIVE params (not total file size)
+    #    - Qwen hybrid attn: ~25% fewer effective layers (DeltaNet is linear)
+    #    - Dense GQA (Llama, Gemma, Mistral): linear with weight size
     base_weight_mb = 16500.0  # 27B reference model
     if model_weight_mb:
         size_factor = model_weight_mb / base_weight_mb
