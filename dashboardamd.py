@@ -1444,7 +1444,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         lines.append(f"  {status}  {DIM}{color_temp(temp)}{temp}°C{RESET}")
         lines.append(f"  {DIM}VRAM:{RESET} {vram_bar} {mem_str}")
         lines.append(f"  {DIM}UTIL:{RESET} {status_color}{util_bar_str}{RESET} {util}%")
-        lines.append(f"  {DIM}PWR:{RESET}  {power:.0f}W  {DIM}|{RESET} {DIM}FAN:{RESET} {fan}%")
+        lines.append(f"  {DIM}PWR:{RESET}  {power:.0f}W  {DIM}|{RESET} {DIM}FAN:{RESET} {fan}%{DIM}  | Refresh: {refresh_interval}s{RESET}")
 
         if i < len(gpus) - 1:
             lines.append(f"  {DIM}{'─' * 48}{RESET}")
@@ -1524,7 +1524,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         gguf = os.path.basename(rm["model_path"])
         lines.append(f"  {DIM}└─ {gguf}{RESET}")
     lines.append(f"  {DIM}└─ {gguf}{RESET}")
-    lines.append(f" {DIM}Refresh: {refresh_interval}s | + / - prompts | Ctrl+R reset chart | Ctrl+C quit")
+    lines.append(f" {DIM}+ / - prompts | Ctrl+R reset chart | Ctrl+C quit")
     lines.append(f" {DIM}GPU UTIL >5% = active")
     lines.append("")
 
