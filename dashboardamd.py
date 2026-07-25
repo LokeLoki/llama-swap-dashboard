@@ -588,10 +588,26 @@ def get_auxiliary_model(aux_port=DEFAULT_AUX_PORT):
             name=m.get("name", "—"),
             size_vram_mb=m.get("size_vram", 0) / (1024 * 1024),
             context_length=m.get("context_length", 0),
-            decode_tps=0,  # Reported from /api/ps only; no active probe
+            decode_tps=0,  # No probe — just report loaded state
         )
     except Exception:
+        return None
+
+
+def get_ollama_active():
+    """Check if Ollama process is actively using a GPU via nvidia-smi compute apps."""
+    try:
+        result = subprocess.run(
+            ["nvidia-smi", "--query-compute-apps=name", "--format=csv,noheader"],
+            capture_output=True, text=True, timeout=2,
+        )
+        if result.returncode == 0:
+            for line in result.stdout.strip().split("\n"):
+                if "ollama" in line.lower():
+                    return True
+    except Exception:
         pass
+    return False
     return None
 
 
@@ -1467,7 +1483,9 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
             lines.append(f"  {DIM}     Size from Ollama API, not amd-smi{RESET}")
         # Subtle spinner below aux line (not idle — Ollama just doesn't report live state)
         spinner = [" ", "◐", "◑", "◓"]
-        lines.append(f"  {DIM}     {spinner[spinner_frame % 4]}{RESET}")
+        active = get_ollama_active()
+        spinner_color = GREEN if active else DIM
+        lines.append(f"  {spinner_color}     {spinner[spinner_frame % 4]}{RESET}")
     else:
         lines.append(f"  {BOLD}Ollama Aux ({aux_port}){RESET}  {DIM}offline{RESET}")
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
