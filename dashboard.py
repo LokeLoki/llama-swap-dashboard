@@ -265,13 +265,6 @@ GEMMA_ISWA_WINDOW = {
 
 # Qwen 3.5/3.6 hybrid attention: 3:1 DeltaNet:GatedAttn ratio.
 # Only 25% of layers carry KV cache (DeltaNet is linear attention, no KV).
-def _gpu_cuda_context_mb(gpu_name):
-    """Estimate CUDA primary context overhead for a GPU in MB.
-    Based on PR #20595: ~3 MB/SM + 200 MB base.
-    Consumer GPUs range ~300-500 MB depending on SM count.
-    Flat estimate covers 90% of cards within ±20%.
-    The actual overhead is small (~15% of total runtime overhead) so precision matters little."""
-    return 350.0
 
 
 def _parse_batch_flags(cmd, default_batch=2048, default_ubatch=512):
@@ -309,7 +302,7 @@ def _parse_batch_flags(cmd, default_batch=2048, default_ubatch=512):
     return batch, ubatch
 
 
-def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size):
+def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size, model_weight_mb=None):
     """Estimate runtime overhead beyond static model+KV payload.
 
     Returns dict with:
@@ -324,45 +317,41 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
     if not gpus or num_active_gpus == 0:
         return {"cuda_context_mb": 0, "compute_buffer_mb": 0, "flash_attn_mb": 0, "tensor_sync_mb": 0, "total_mb": 0}
 
-    # 1. CUDA context overhead per active GPU
-    cuda_context_total = 0.0
-    for gpu in gpus[:num_active_gpus]:
-        cuda_context_total += _gpu_cuda_context_mb(gpu.name)
+    # 1. CUDA context overhead per active GPU (~350 MB flat, consumer GPU average)
+    cuda_context_total = 350.0 * num_active_gpus
 
-    # 2. Compute buffer — scales with ubatch and the GPU's share of model layers.
-    #    From issue #23894 (27B model, ubatch=512, 2 GPUs, layer split):
-    #      CUDA0 (4070 Ti Super): 325 MB
-    #      CUDA1 (3080): 983 MB
-    #      Total: ~1308 MB
-    #    From issue #24175 (ubatch=16): 42 MB total. ubatch>16 explodes.
-    #    The buffer has a fixed per-GPU component (~100 MB for graph metadata)
-    #    plus a ubatch-dependent component. In pipeline parallel mode, the tail
-    #    GPU holds intermediate activations for ALL upstream layers — so smaller
-    #    GPUs have disproportionately larger buffers. Model:
-    #      head GPU: fixed + ubatch * head_factor
-    #      tail GPU: fixed + ubatch * tail_factor (larger factor)
-    #    Observed at ubatch=512: head~325, tail~983
-    #    => head_factor ≈ 0.40/token, tail_factor ≈ 1.75/token
-    head_fixed = 100.0
-    tail_fixed = 100.0
-    head_factor = 0.40  # MB per ubatch token for head GPU
-    tail_factor = 1.75  # MB per ubatch token for tail GPU
+    # 2. Compute buffer - scales with ubatch and model size.
+    #    Head GPU: fixed + ubatch * head_factor
+    #    Tail GPU: fixed + ubatch * tail_factor (holds intermediate activations)
+    #    Base factors tuned for 27B model (16.5 GB weights). Scale linearly
+    #    with model size since buffer depends on hidden dimension and layer count.
+    #    From issue #23894 (27B, ubatch=512): head=325, tail=983 MB
+    #    From issue #24175 (ubatch=16): ~42 MB total
+    base_weight_mb = 16500.0  # 27B reference model
+    if model_weight_mb:
+        size_factor = model_weight_mb / base_weight_mb
+    else:
+        size_factor = 1.0
+    head_fixed = 100.0 * size_factor
+    tail_fixed = 100.0 * size_factor
+    head_factor = 0.40 * size_factor  # MB per ubatch token for head GPU
+    tail_factor = 1.75 * size_factor  # MB per ubatch token for tail GPU
     compute_buffer_total = 0.0
-    for i, gpu in enumerate(gpus[:num_active_gpus]):
+    for i in range(num_active_gpus):
         is_tail = (i == num_active_gpus - 1) and num_active_gpus > 1
         fixed = tail_fixed if is_tail else head_fixed
         factor = tail_factor if is_tail else head_factor
         compute_buffer_total += fixed + ubatch_size * factor
 
     # 3. Flash attention KV reservation (PR #23907)
-    #    ~300 MB per GPU for a 27B model at 100k ctx with q8_0 KV
+    #    ~300 MB per GPU at 100k ctx with q8_0 KV, scales with ctx and model size
     ctx_factor = max(1.0, ctx_size / 100000)
-    flash_attn_mb = 300.0 * ctx_factor * num_active_gpus
+    flash_attn_mb = 300.0 * ctx_factor * size_factor * num_active_gpus
 
     # 4. Tensor sync state (pipeline parallel mode)
     #    Shared compute graph metadata + cross-GPU sync pointers
-    #    ~100 MB per GPU for layer-split mode
-    tensor_sync_mb = 100.0 * num_active_gpus
+    #    Scales with model size (more layers = more sync state)
+    tensor_sync_mb = 100.0 * size_factor * num_active_gpus
 
     total = cuda_context_total + compute_buffer_total + flash_attn_mb + tensor_sync_mb
 
@@ -1291,7 +1280,7 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         active_gpu_count = sum(1 for g in gpus if g.mem_used_mb > 500)
         if active_gpu_count > 1:
             num_active_gpus = active_gpu_count
-    overhead = estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size)
+    overhead = estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size, weight_mb)
     total_vram_mb = static_mb + overhead["total_mb"]
     return MainModelVram(
         total_mb=total_vram_mb,
