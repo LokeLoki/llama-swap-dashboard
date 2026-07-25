@@ -1632,12 +1632,6 @@ def render_prompt_log(valid_metrics, running_models=None, num_prompts=3, session
         duration = req.get("duration_ms", 0)
         req_time = format_time(req.get("timestamp", ""))
 
-        lines.append(
-            f"  {DIM}[{req_time}]{RESET} {BOLD}{model}{RESET} "
-            f"{DIM}│{RESET} {DIM}decode:{RESET} {PRIMARY_LIGHT}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET} "
-            f"{DIM}│{RESET} {DIM}prompt:{RESET} {PRIMARY}{prompt_tps:.0f}{RESET}{WHITE}t/s{RESET} "
-            f"{DIM}│{RESET} {DIM}{format_duration(duration)}{RESET}"
-        )
         # Speculative decoding acceptance rate
         spec_str = ""
         if has_spec:
@@ -1645,13 +1639,19 @@ def render_prompt_log(valid_metrics, running_models=None, num_prompts=3, session
             draft_accepted = t.get("draft_n_accepted", 0)
             if draft_n > 0:
                 acc_pct = (draft_accepted / draft_n) * 100
-                spec_str = f" {DIM}│ {RESET}{DIM}acc:{RESET}{LIGHT_GREEN}{acc_pct:.0f}%{RESET}"
+                spec_str = f" {DIM}│{RESET} {DIM}acc:{RESET}{LIGHT_GREEN}{acc_pct:.0f}%{RESET}"
 
+        lines.append(
+            f"  {DIM}[{req_time}]{RESET} {BOLD}{model}{RESET} "
+            f"{DIM}│{RESET} {DIM}decode:{RESET} {PRIMARY_LIGHT}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET} "
+            f"{DIM}│{RESET} {DIM}prompt:{RESET} {PRIMARY}{prompt_tps:.0f}{RESET}{WHITE}t/s{RESET} "
+            f"{DIM}│{RESET} {DIM}{format_duration(duration)}{RESET}"
+            f"{spec_str}"
+        )
         lines.append(
             f"  {DIM}     {RESET}{DIM}in:{RESET}{WHITE}{input_tok}{RESET} "
             f"{DIM}│ {RESET}{DIM}out:{RESET}{WHITE}{output_tok}{RESET} "
             f"{DIM}│ {RESET}{DIM}cache:{RESET}{WHITE}{cached_tok}{RESET}"
-            f"{spec_str}"
         )
         lines.append(f"  {DIM}{'─' * 56}{RESET}")
 
