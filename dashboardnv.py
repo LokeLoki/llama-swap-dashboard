@@ -1307,12 +1307,16 @@ def _fmt_num(n):
     return str(n)
 
 
-def _format_metric_line(label, vram_str, decode_tps, align_visible=40):
+def _format_metric_line(label, vram_str, decode_tps, align_visible=40, is_aux=False, spinner_frame=0, aux_active=False):
     """Format a single metric line with aligned decode values."""
     if decode_tps > 0:
         decode_str = f"{DIM}decode: {RESET}{LIGHT_GREEN}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET}"
+    elif is_aux:
+        spinner = [" ", "◐", "◑", "◓"]
+        spinner_color = GREEN if aux_active else DIM
+        decode_str = f"{spinner_color}{spinner[spinner_frame % 4]}{RESET}"
     else:
-        decode_str = f"{DIM}idle{RESET}"
+        decode_str = f"{DIM}—{RESET}"
     if vram_str:
         prefix = f"{BOLD}{label}{RESET} {SOFT_WHITE}{vram_str}{RESET}"
     else:
@@ -1422,14 +1426,10 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         aux_tps = aux_info.decode_tps
         aux_vram_str = f"{aux_total_mb / 1024:.1f} GB"
         aux_state = get_aux_state(aux_info, aux_port)
-        lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", aux_vram_str, aux_tps))
+        aux_active = get_ollama_active()
+        lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", aux_vram_str, aux_tps, is_aux=True, spinner_frame=spinner_frame, aux_active=aux_active))
         if aux_total_mb is not None:
-            lines.append(f"  {DIM}     Size from Ollama API, not nvidia-smi{RESET}")
-        # Subtle spinner below aux line (not idle — Ollama just doesn't report live state)
-        spinner = [" ", "◐", "◑", "◓"]
-        active = get_ollama_active()
-        spinner_color = GREEN if active else DIM
-        lines.append(f"  {spinner_color}     {spinner[spinner_frame % 4]}{RESET}")
+            lines.append(f"  {DIM}     Ollama in full{RESET}")
     else:
         lines.append(f"  {BOLD}Ollama Aux ({aux_port}){RESET}  {DIM}offline{RESET}")
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
