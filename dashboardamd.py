@@ -1525,7 +1525,6 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         lines.append(f"  {DIM}└─ {gguf}{RESET}")
     lines.append(f"  {DIM}└─ {gguf}{RESET}")
     lines.append(f" {DIM}+ / - prompts | Ctrl+R reset chart | Ctrl+C quit")
-    lines.append(f" {DIM}GPU UTIL >5% = active")
     lines.append("")
 
     sys.stdout.write("\n".join(lines))
