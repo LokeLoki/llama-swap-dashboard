@@ -321,9 +321,11 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
     cuda_context_total = 350.0 * num_active_gpus
 
     # 2. Compute buffer — uniform per GPU, proportional to model size.
-    #    PR #14484 (July 2025): 3-pass allocation, each GPU gets a buffer
-    #    sized to its layer slice. Total observed for 27B/ubatch=512/2 GPUs = 1308 MB.
-    #    Per GPU: 100 + ubatch × 1.08 (averaged across layer fractions)
+    #    Verified from llama.cpp May/July 2026 issues: total observed for
+    #    27B/ubatch=512/2 GPUs = 1308 MB (issue #23894: 325 + 983).
+    #    Discussion #20252 (July 2026): 2 GPUs = 990 MB total (556 + 434).
+    #    Per GPU average: 100 + ubatch × 1.08. Total matters for VRAM estimate;
+    #    per-GPU distribution varies by layer fraction and split ratio.
     #    Scales linearly with model size (hidden dim × layer count).
     base_weight_mb = 16500.0  # 27B reference model
     if model_weight_mb:
