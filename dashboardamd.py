@@ -22,16 +22,42 @@ import time
 import urllib.request
 from datetime import datetime
 
+# Cross-platform keyboard input
+if sys.platform == "win32":
+    import msvcrt
+    HAS_KEYBOARD = True
+else:
+    try:
+        import termios
+        import tty
+        import select
+        HAS_KEYBOARD = True
+    except ImportError:
+        HAS_KEYBOARD = False
 @dataclasses.dataclass
 class GpuStats:
+    """GPU statistics dataclass."""
     id: int
     name: str
     temp_c: int
     gpu_util_pct: int
     mem_used_mb: int
     mem_total_mb: int
-    fan_pct: int
     power_w: float
+    fan_pct: int
+
+
+def _read_key():
+    """Read a single keypress if available, without blocking."""
+    if not HAS_KEYBOARD:
+        return None
+    if sys.platform == "win32":
+        if msvcrt.kbhit():
+            return msvcrt.getch()
+    else:
+        if select.select([sys.stdin], [], [], 0) == ([sys.stdin], [], []):
+            return sys.stdin.read(1)
+    return None
 
 @dataclasses.dataclass
 class SystemInfo:
@@ -1182,10 +1208,10 @@ def get_metrics_by_bucket(valid_metrics):
 
 # ── Rendering ──────────────────────────────────────────
 
-def render_prompt_log(valid_metrics, running_models=None):
-    """Render a rolling log of the last 3 prompts."""
+def render_prompt_log(valid_metrics, running_models=None, num_prompts=3):
+    """Render a rolling log of the last N prompts."""
     lines = []
-    recent = get_last_metrics(valid_metrics, 3)
+    recent = get_last_metrics(valid_metrics, num_prompts)
     if not recent:
         return lines
 
@@ -1354,7 +1380,7 @@ def render_main_model_decode(valid_metrics, sys_info):
     return lines, decode_tps
 
 
-def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, session_totals, identity=None, host=None, aux_port=None, running_models=None):
+def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, session_totals, identity=None, host=None, aux_port=None, running_models=None, num_prompts=3):
     """Render the dashboard."""
     sys.stdout.write("\033[H\033[0J")
     now = time.strftime("%H:%M:%S")
@@ -1451,8 +1477,8 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
 
     lines.append("")
 
-    # Last 3 prompts rolling log
-    lines.extend(render_prompt_log(valid_metrics, running_models))
+    # Last N prompts rolling log
+    lines.extend(render_prompt_log(valid_metrics, running_models, num_prompts))
     lines.append("")
 
     # Session token totals — passed in, no O(n) scan
@@ -1475,8 +1501,8 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         rm = running_models[0]
         gguf = os.path.basename(rm["model_path"])
         lines.append(f"  {DIM}└─ {gguf}{RESET}")
-
-    lines.append(f" {DIM}Refresh: {refresh_interval}s | Ctrl+C to quit")
+    lines.append(f"  {DIM}└─ {gguf}{RESET}")
+    lines.append(f" {DIM}Refresh: {refresh_interval}s | + / - prompts | Ctrl+R reset chart | Ctrl+C quit")
     lines.append(f" {DIM}GPU UTIL >5% = active")
     lines.append("")
 
@@ -1501,6 +1527,8 @@ def main():
     session_totals = {"in": 0, "out": 0, "reqs": 0}
     prev_count = 0
     prev_model = None
+    num_prompts = 3  # Default: show last 3 prompts
+    chart_metrics = []  # Metrics used for the chart (resettable via Ctrl+R)
 
     if config_yaml:
         print(f"Model config loaded: {config_yaml}")
@@ -1525,6 +1553,7 @@ def main():
             session_totals = {"in": 0, "out": 0, "reqs": 0}
             prev_count = 0
             new_valid = valid
+            chart_metrics = []  # Reset chart on model switch too
 
         # Incrementally update session totals
         for m in new_valid:
@@ -1535,9 +1564,22 @@ def main():
         prev_count = len(valid)
         prev_model = current_model
 
-        buckets = get_metrics_by_bucket(valid)
+        # Accumulate new metrics for the chart
+        chart_metrics.extend(new_valid)
+
+        # Keyboard shortcuts
+        key = _read_key()
+        if key:
+            if key in (b"+", b"=", b"'"):  # + or = (shift +)
+                num_prompts = min(10, num_prompts + 1)
+            elif key in (b"-", b"_"):
+                num_prompts = max(1, num_prompts - 1)
+            elif key in (b"\x12", b"c", b"r"):  # Ctrl+R (0x12) or 'r'
+                chart_metrics = []  # Reset chart buckets
+
+        buckets = get_metrics_by_bucket(chart_metrics)
         identity = get_active_model_identity(valid, config_yaml)
-        render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models)
+        render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts)
 
         # Fixed refresh interval — subtract work time to prevent drift
         elapsed = time.time() - loop_start
