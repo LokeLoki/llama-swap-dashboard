@@ -1380,7 +1380,7 @@ def render_main_model_decode(valid_metrics, sys_info):
     return lines, decode_tps
 
 
-def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, session_totals, identity=None, host=None, aux_port=None, running_models=None, num_prompts=3):
+def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, session_totals, identity=None, host=None, aux_port=None, running_models=None, num_prompts=3, spinner_frame=0):
     """Render the dashboard."""
     sys.stdout.write("\033[H\033[0J")
     now = time.strftime("%H:%M:%S")
@@ -1465,6 +1465,9 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", aux_vram_str, aux_tps))
         if aux_total_mb is not None:
             lines.append(f"  {DIM}     Size from Ollama API, not amd-smi{RESET}")
+        # Subtle spinner below aux line (not idle — Ollama just doesn't report live state)
+        spinner = [" ", "◐", "◑", "◓"]
+        lines.append(f"  {DIM}     {spinner[spinner_frame % 4]}{RESET}")
     else:
         lines.append(f"  {BOLD}Ollama Aux ({aux_port}){RESET}  {DIM}offline{RESET}")
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
@@ -1529,6 +1532,7 @@ def main():
     prev_model = None
     num_prompts = 3  # Default: show last 3 prompts
     chart_metrics = []  # Metrics used for the chart (resettable via Ctrl+R)
+    spinner_frame = 0  # Animation frame for aux indicator
 
     if config_yaml:
         print(f"Model config loaded: {config_yaml}")
@@ -1579,7 +1583,10 @@ def main():
 
         buckets = get_metrics_by_bucket(chart_metrics)
         identity = get_active_model_identity(valid, config_yaml)
-        render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts)
+        render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame)
+
+        # Increment spinner frame for next cycle
+        spinner_frame += 1
 
         # Fixed refresh interval — subtract work time to prevent drift
         elapsed = time.time() - loop_start
