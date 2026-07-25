@@ -1428,8 +1428,6 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         aux_state = get_aux_state(aux_info, aux_port)
         aux_active = get_ollama_active()
         lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", aux_vram_str, aux_tps, is_aux=True, spinner_frame=spinner_frame, aux_active=aux_active))
-        if aux_total_mb is not None:
-            lines.append(f"  {DIM}     Ollama in full{RESET}")
     else:
         lines.append(f"  {BOLD}Ollama Aux ({aux_port}){RESET}  {DIM}offline{RESET}")
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
