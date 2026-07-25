@@ -1579,24 +1579,24 @@ def main():
         loop_frame += 1
 
         # GPU stats — every REFRESH_GPU cycles (local, cheap)
-        if loop_frame % REFRESH_GPU == 1:
+        if loop_frame % REFRESH_GPU == 0:
             gpus = get_amd_smi()
 
         # Network metrics — every REFRESH_METRICS cycles
-        if loop_frame % REFRESH_METRICS == 1:
+        if loop_frame % REFRESH_METRICS == 0:
             sys_info = get_llama_swap_stats(api_url)
             metrics = fetch_metrics(metrics_url)
 
         # Running models — every REFRESH_RUNNING cycles
-        if loop_frame % REFRESH_RUNNING == 1:
+        if loop_frame % REFRESH_RUNNING == 0:
             running_models = fetch_running_models(host)
 
         # Ollama aux — every REFRESH_OLLAMA cycles
-        if loop_frame % REFRESH_OLLAMA == 1:
+        if loop_frame % REFRESH_OLLAMA == 0:
             aux_info = get_auxiliary_model(aux_port)
 
         # Ollama active check — every REFRESH_OLLAMA_ACTIVE cycles (local)
-        if loop_frame % REFRESH_OLLAMA_ACTIVE == 1:
+        if loop_frame % REFRESH_OLLAMA_ACTIVE == 0:
             ollama_active = get_ollama_active()
 
         valid = filter_valid(metrics)
