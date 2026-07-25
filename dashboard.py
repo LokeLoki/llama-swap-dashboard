@@ -82,6 +82,12 @@ class MainModelVram:
     draft_mb: float
     cache_mb: float
     cache_type: str
+    # Runtime overhead estimates (not in static payload)
+    cuda_context_mb: float = 0.0
+    compute_buffer_mb: float = 0.0
+    flash_attn_mb: float = 0.0
+    tensor_sync_mb: float = 0.0
+    overhead_mb: float = 0.0
 
 @dataclasses.dataclass
 class ModelIdentity:
@@ -259,6 +265,145 @@ GEMMA_ISWA_WINDOW = {
 
 # Qwen 3.5/3.6 hybrid attention: 3:1 DeltaNet:GatedAttn ratio.
 # Only 25% of layers carry KV cache (DeltaNet is linear attention, no KV).
+# GPU SM (Streaming Multiprocessor) counts — used to estimate CUDA context overhead.
+# Each GPU that llama.cpp initializes pays a "primary context" cost: ~120-550 MB
+# depending on SM count (PR #20595, merged 2026).
+# Formula: ~3 MB/SM + 200 MB base per active GPU.
+GPU_SM_COUNT = {
+    "4070 Ti SUPER": 48,
+    "4070 Ti":       40,
+    "4070":          36,
+    "4060 Ti":       40,
+    "4060":          36,
+    "4080 SUPER":    52,
+    "4080":          52,
+    "4090":          76,
+    "3080":          68,   # 10GB/12GB
+    "3090":          84,
+    "3060":          38,
+    "5060 Ti":       32,   # estimated (GB203)
+    "5070":          36,   # estimated
+    "5080":          52,   # estimated
+    "5090":          76,   # estimated
+}
+
+
+def _gpu_cuda_context_mb(gpu_name):
+    """Estimate CUDA primary context overhead for a GPU in MB.
+    Based on PR #20595: ~3 MB/SM + 200 MB base."""
+    # Match partial names (e.g., "4070 Ti SUPER" from "RTX 4070 Ti SUPER")
+    sm = 0
+    for key, val in GPU_SM_COUNT.items():
+        if key.replace(" ", "").lower() in gpu_name.replace(" ", "").lower():
+            sm = val
+            break
+    if sm == 0:
+        # Unknown GPU: assume mid-range SM count
+        sm = 40
+    return 3.0 * sm + 200.0
+
+
+def _parse_batch_flags(cmd, default_batch=2048, default_ubatch=512):
+    """Parse -b/--batch-size and -ub/--ubatch-size from command string.
+    Defaults from common/common.h: batch=2048, ubatch=512."""
+    batch = default_batch
+    ubatch = default_ubatch
+    # -b flag (short)
+    b_match = re.search(r'(?<!\w)-b\s+(\d+)', cmd)
+    if b_match:
+        try:
+            batch = int(b_match.group(1))
+        except ValueError:
+            pass
+    # -ub flag (short)
+    ub_match = re.search(r'(?<!\w)-ub\s+(\d+)', cmd)
+    if ub_match:
+        try:
+            ubatch = int(ub_match.group(1))
+        except ValueError:
+            pass
+    # Long forms override
+    lb_match = re.search(r'--batch-size\s+(\d+)', cmd)
+    if lb_match:
+        try:
+            batch = int(lb_match.group(1))
+        except ValueError:
+            pass
+    lub_match = re.search(r'--ubatch-size\s+(\d+)', cmd)
+    if lub_match:
+        try:
+            ubatch = int(lub_match.group(1))
+        except ValueError:
+            pass
+    return batch, ubatch
+
+
+def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size):
+    """Estimate runtime overhead beyond static model+KV payload.
+
+    Returns dict with:
+      cuda_context_mb: total CUDA primary context cost across active GPUs
+      compute_buffer_mb: total compute graph buffers (scales with ubatch)
+      flash_attn_mb: flash attention KV reservation
+      tensor_sync_mb: pipeline parallel sync state
+      total_mb: sum of all overheads
+
+    Based on llama.cpp logs (issues #23894, #24175, PRs #20595, #23907).
+    """
+    if not gpus or num_active_gpus == 0:
+        return {"cuda_context_mb": 0, "compute_buffer_mb": 0, "flash_attn_mb": 0, "tensor_sync_mb": 0, "total_mb": 0}
+
+    # 1. CUDA context overhead per active GPU
+    cuda_context_total = 0.0
+    for gpu in gpus[:num_active_gpus]:
+        cuda_context_total += _gpu_cuda_context_mb(gpu.name)
+
+    # 2. Compute buffer — scales with ubatch and the GPU's share of model layers.
+    #    From issue #23894 (27B model, ubatch=512, 2 GPUs, layer split):
+    #      CUDA0 (4070 Ti Super): 325 MB
+    #      CUDA1 (3080): 983 MB
+    #      Total: ~1308 MB
+    #    From issue #24175 (ubatch=16): 42 MB total. ubatch>16 explodes.
+    #    The buffer has a fixed per-GPU component (~100 MB for graph metadata)
+    #    plus a ubatch-dependent component. In pipeline parallel mode, the tail
+    #    GPU holds intermediate activations for ALL upstream layers — so smaller
+    #    GPUs have disproportionately larger buffers. Model:
+    #      head GPU: fixed + ubatch * head_factor
+    #      tail GPU: fixed + ubatch * tail_factor (larger factor)
+    #    Observed at ubatch=512: head~325, tail~983
+    #    => head_factor ≈ 0.40/token, tail_factor ≈ 1.75/token
+    head_fixed = 100.0
+    tail_fixed = 100.0
+    head_factor = 0.40  # MB per ubatch token for head GPU
+    tail_factor = 1.75  # MB per ubatch token for tail GPU
+    compute_buffer_total = 0.0
+    for i, gpu in enumerate(gpus[:num_active_gpus]):
+        is_tail = (i == num_active_gpus - 1) and num_active_gpus > 1
+        fixed = tail_fixed if is_tail else head_fixed
+        factor = tail_factor if is_tail else head_factor
+        compute_buffer_total += fixed + ubatch_size * factor
+
+    # 3. Flash attention KV reservation (PR #23907)
+    #    ~300 MB per GPU for a 27B model at 100k ctx with q8_0 KV
+    ctx_factor = max(1.0, ctx_size / 100000)
+    flash_attn_mb = 300.0 * ctx_factor * num_active_gpus
+
+    # 4. Tensor sync state (pipeline parallel mode)
+    #    Shared compute graph metadata + cross-GPU sync pointers
+    #    ~100 MB per GPU for layer-split mode
+    tensor_sync_mb = 100.0 * num_active_gpus
+
+    total = cuda_context_total + compute_buffer_total + flash_attn_mb + tensor_sync_mb
+
+    return {
+        "cuda_context_mb": round(cuda_context_total, 1),
+        "compute_buffer_mb": round(compute_buffer_total, 1),
+        "flash_attn_mb": round(flash_attn_mb, 1),
+        "tensor_sync_mb": round(tensor_sync_mb, 1),
+        "total_mb": round(total, 1),
+    }
+
+
 QWEN_HYBRID_LAYERS = {
     "qwen3.6-27b":   16,   # 64 total → 16 GatedAttn
     "qwen3.5-27b":   16,
@@ -613,6 +758,22 @@ def render_context_bar(cache_tok, fresh_tok, gen_tok, max_ctx, width=22):
     return f"{bar} {DIM}{pct:2.0f}%{RESET}"
 
 
+def render_master_context_bar(used_tok, max_ctx, width=56):
+    """Draw a single-color master bar showing current context window fill."""
+    if max_ctx <= 0:
+        max_ctx = max(1, used_tok)
+    used_tok = min(used_tok, max_ctx)
+    filled = int((used_tok / max_ctx) * width)
+    empty = width - filled
+    pct = (used_tok / max_ctx) * 100
+    # Color by fill level: green ≤50%, yellow ≤80%, red >80%
+    color = GREEN if pct <= 50 else (YELLOW if pct <= 80 else RED)
+    bar = f"{color}{'█' * filled}{RESET}{DIM}{'░' * empty}{RESET}"
+    used_str = f"{used_tok / 1024:.0f}k" if used_tok >= 1024 else str(used_tok)
+    ctx_str = f"{max_ctx / 1024:.0f}k" if max_ctx >= 1024 else str(max_ctx)
+    return f"{DIM}[{RESET}{bar}{DIM}]{RESET} {DIM}{used_str}/{ctx_str} ({pct:.0f}%){RESET}"
+
+
 def color_temp(temp):
     """Color-code temperature."""
     if temp <= 67:
@@ -812,6 +973,8 @@ def fetch_running_models(host):
                     spec_draft_n_max = int(sdn_max_match.group(1))
                 except ValueError:
                     pass
+            # Parse batch/ubatch flags
+            batch_size, ubatch_size = _parse_batch_flags(cmd)
             # Parse ALL flags generically from cmd
             all_flags = {}
             for flag_match in re.finditer(r'(?:^|\s)(--[a-zA-Z0-9_-]+|--[a-zA-Z0-9_-]+(?:\s+[^\s"]+)|-[a-zA-Z]\s+([^\s"]+))', cmd):
@@ -843,6 +1006,8 @@ def fetch_running_models(host):
                 "spec_draft_n_max": spec_draft_n_max if has_spec else 0,
                 "cache_ram_mb": cache_ram_mb,
                 "parallel": parallel,
+                "batch_size": batch_size,
+                "ubatch_size": ubatch_size,
                 "all_flags": all_flags,
             })
         return running
@@ -1045,8 +1210,9 @@ def get_aux_state(aux_info, aux_port, ollama_active=None):
     return "idle"
 
 
-def get_main_model_vram(running_models, valid_metrics):
-    """Calculate main model VRAM: weights + mmproj + draft + KV cache (capped by --cache-ram).
+def get_main_model_vram(running_models, valid_metrics, gpus=None):
+    """Calculate main model VRAM: weights + mmproj + draft + KV cache + runtime overhead.
+    Runtime overhead: CUDA context, compute buffers, flash attn reservation, tensor sync.
     Returns MainModelVram or None."""
     if not running_models:
         return None
@@ -1133,7 +1299,29 @@ def get_main_model_vram(running_models, valid_metrics):
             draft_cache_mb = calc_kv_cache_mb(mtp_layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, mtp_layers, gemma4_kv)
     # Build cache type string for display
     ct_display = active["cache_type"] or "f16"
-    total_vram_mb = weight_mb + mmproj_mb + draft_mb + cache_mb + draft_cache_mb
+    # Static payload: weights + mmproj + draft + KV cache
+    static_mb = weight_mb + mmproj_mb + draft_mb + cache_mb + draft_cache_mb
+    # Estimate runtime overhead
+    batch_size = active.get("batch_size", 2048)
+    ubatch_size = active.get("ubatch_size", 512)
+    # Determine number of active GPUs (those with tensor split > 0)
+    # Parse -ts flag to find how many GPUs have non-zero shares
+    num_active_gpus = 1  # minimum: single GPU
+    ts_match = re.search(r'(?<!\w)-ts\s+([\d.,]+)', cmd_str := active.get("cmd", ""))
+    if ts_match:
+        try:
+            shares = [float(x) for x in ts_match.group(1).split(",")]
+            num_active_gpus = sum(1 for s in shares if s > 0)
+        except (ValueError, IndexError):
+            pass
+    # If multi-gpu via ts but no explicit shares, use GPU count from stats
+    if gpus and num_active_gpus == 1:
+        # Check if multiple GPUs have significant memory usage (model loaded on them)
+        active_gpu_count = sum(1 for g in gpus if g.mem_used_mb > 500)
+        if active_gpu_count > 1:
+            num_active_gpus = active_gpu_count
+    overhead = estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size)
+    total_vram_mb = static_mb + overhead["total_mb"]
     return MainModelVram(
         total_mb=total_vram_mb,
         weight_mb=weight_mb,
@@ -1141,6 +1329,11 @@ def get_main_model_vram(running_models, valid_metrics):
         draft_mb=draft_mb,
         cache_mb=cache_mb,
         cache_type=ct_display,
+        cuda_context_mb=overhead["cuda_context_mb"],
+        compute_buffer_mb=overhead["compute_buffer_mb"],
+        flash_attn_mb=overhead["flash_attn_mb"],
+        tensor_sync_mb=overhead["tensor_sync_mb"],
+        overhead_mb=overhead["total_mb"],
     )
 
 
@@ -1362,7 +1555,7 @@ def get_metrics_by_bucket(valid_metrics):
 
 # ── Rendering ──────────────────────────────────────────
 
-def render_prompt_log(valid_metrics, running_models=None, num_prompts=3):
+def render_prompt_log(valid_metrics, running_models=None, num_prompts=3, session_totals=None):
     """Render a rolling log of the last N prompts with dynamic context bars."""
     lines = []
     recent = get_last_metrics(valid_metrics, num_prompts)
@@ -1383,7 +1576,34 @@ def render_prompt_log(valid_metrics, running_models=None, num_prompts=3):
                 path_map[mid] = mp
                 running_short[mid] = short_model_name(mp)
 
-    lines.append(f"  {BOLD}Last Prompts{RESET} {DIM}(Context: {max_ctx/1024:.0f}k){RESET}")
+    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
+
+    # Cache fill — predicts next prompt speed. Brightness scales with cache.
+    cache_tok = 0
+    if recent:
+        latest = recent[-1]
+        t_latest = latest.get("tokens", {})
+        cache_tok = t_latest.get("cache_tokens", 0)
+    cache_str = f"{cache_tok / 1024:.0f}k" if cache_tok >= 1024 else str(cache_tok)
+    ctx_str = f"{max_ctx / 1024:.0f}k" if max_ctx >= 1024 else str(max_ctx)
+    pct = (cache_tok / max_ctx) * 100 if max_ctx > 0 else 0
+    lines.append(f"  {BOLD}Last Prompts{RESET} {DIM}{cache_str}/{ctx_str} ({pct:.0f}%){RESET}")
+
+    # Master cache bar (width 54) — brightness maps to cache warmth
+    filled = int((cache_tok / max_ctx) * 54) if max_ctx > 0 else 0
+    filled = min(filled, 54)
+    empty = 54 - filled
+    # Big cache = white/bright, medium = soft white, low = dim, none = empty
+    if pct >= 67:
+        block_color = BOLD + WHITE
+    elif pct >= 33:
+        block_color = WHITE
+    elif pct > 0:
+        block_color = DIM
+    else:
+        block_color = RESET
+    bar = f"{DIM}[{RESET}{block_color}{'█' * filled}{RESET}{DIM}{'░' * empty}{RESET}{DIM}]{RESET}"
+    lines.append(f"  {bar}")
     lines.append(f"  {BOLD}{DIM}{'─' * 56}{RESET}")
     for req in reversed(recent):
         t = req.get("tokens", {})
@@ -1399,11 +1619,8 @@ def render_prompt_log(valid_metrics, running_models=None, num_prompts=3):
         input_tok = t.get("input_tokens", 0)
         output_tok = t.get("output_tokens", 0)
         cached_tok = t.get("cache_tokens", 0)
-        fresh_tok = max(0, input_tok - cached_tok)
         duration = req.get("duration_ms", 0)
         req_time = format_time(req.get("timestamp", ""))
-
-        ctx_bar = render_context_bar(cached_tok, fresh_tok, output_tok, max_ctx)
 
         lines.append(
             f"  {DIM}[{req_time}]{RESET} {BOLD}{model}{RESET} "
@@ -1412,13 +1629,13 @@ def render_prompt_log(valid_metrics, running_models=None, num_prompts=3):
             f"{DIM}│{RESET} {DIM}{format_duration(duration)}{RESET}"
         )
         lines.append(
-            f"  {DIM}  └─ {RESET}{ctx_bar} "
-            f"{DIM}│ {RESET}{GREEN}hit:{cached_tok}{RESET} "
-            f"{DIM}│ {RESET}{YELLOW}eval:{fresh_tok}{RESET} "
-            f"{DIM}│ {RESET}{CYAN}gen:{output_tok}{RESET}"
+            f"  {DIM}     {RESET}{DIM}in:{RESET}{WHITE}{input_tok}{RESET} "
+            f"{DIM}│ {RESET}{DIM}out:{RESET}{WHITE}{output_tok}{RESET} "
+            f"{DIM}│ {RESET}{DIM}cache:{RESET}{WHITE}{cached_tok}{RESET}"
         )
         lines.append(f"  {DIM}{'─' * 56}{RESET}")
 
+    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     return lines
 
 
@@ -1476,9 +1693,12 @@ def render_chart(buckets):
 
         d_range = f"{PRIMARY_LIGHT}{p50:.0f}{RESET}-{PRIMARY}{p90:.0f}{RESET}"
 
-        # Fetch the Prompt Processing (PP) median we aggregated
+        # Fetch the Prompt Processing (PP) median — fixed width so decode doesn't shift
         pp_median = data.get("prompt_median", 0)
-        pp_str = f"{YELLOW}PP:{pp_median:.0f}{RESET} " if pp_median > 0 else ""
+        if pp_median > 0:
+            pp_str = f"{YELLOW}PP:{pp_median:>4.0f}{RESET} "
+        else:
+            pp_str = f"{YELLOW}{' ':>10}{RESET} "
 
         d_unit = f"{WHITE}t/s{RESET}"
         count = data.get("count", 0)
@@ -1548,9 +1768,9 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     now = time.strftime("%H:%M:%S")
     lines = []
 
-    lines.append(f" {BOLD}{BORDER}{'═' * 56}{RESET}")
-    lines.append(f" {BOLD}  llama-swap Dashboard{RESET}  {now}")
-    lines.append(f" {BOLD}{BORDER}{'═' * 56}{RESET}")
+    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
+    lines.append(f"  {BOLD}  llama-swap Dashboard{RESET}  {now}")
+    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append("")
 
     if not gpus:
@@ -1587,7 +1807,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         lines.append(f"  {DIM}PWR:{RESET}  {power:.0f}W  {DIM}|{RESET} {DIM}FAN:{RESET} {fan}%{DIM}  | Refresh: {refresh_interval}s{RESET}")
 
         if i < len(gpus) - 1:
-            lines.append(f"  {DIM}{'─' * 48}{RESET}")
+            lines.append(f"  {DIM}{'─' * 56}{RESET}")
             lines.append("")
 
     lines.append("")
@@ -1597,7 +1817,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     lines.extend(sys_lines)
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
     # Calculate main model VRAM: weights + KV cache (additive estimate)
-    main_vram_info = get_main_model_vram(running_models, valid_metrics) if running_models else None
+    main_vram_info = get_main_model_vram(running_models, valid_metrics, gpus) if running_models else None
     if main_vram_info:
         main_vram_str = f"{main_vram_info.total_mb / 1024:.1f} GB"
     else:
@@ -1640,7 +1860,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     lines.append("")
 
     # Last N prompts rolling log
-    lines.extend(render_prompt_log(valid_metrics, running_models, num_prompts))
+    lines.extend(render_prompt_log(valid_metrics, running_models, num_prompts, session_totals))
     lines.append("")
 
     # Session token totals — passed in, no O(n) scan
@@ -1649,21 +1869,21 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     total_reqs = session_totals["reqs"]
 
     token_line = (
-        f" {DIM}Session Tokens  "
+        f"  {DIM}Session Tokens  "
         f"in: {_fmt_num(total_in)}  "
         f"out: {_fmt_num(total_out)}  "
         f"reqs: {total_reqs}{RESET}"
     )
 
-    lines.append(f" {BOLD}{BORDER}{'═' * 56}{RESET}")
+    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append(token_line)
 
     # Subtle footer: full model path
     if running_models and running_models[0].get("model_path"):
         rm = running_models[0]
         gguf = os.path.basename(rm["model_path"])
-        lines.append(f"  {DIM}└─ {gguf}{RESET}")
-    lines.append(f"  {DIM}- / + prompts | Ctrl+R reset chart | Ctrl+C quit")
+        lines.append(f"   {DIM}└─ {gguf}{RESET}")
+    lines.append(f"   {DIM}- / + prompts | Ctrl+R reset chart | Ctrl+C quit")
     lines.append("")
 
     sys.stdout.write("\n".join(lines))
@@ -1684,7 +1904,7 @@ def main():
     gpu_names = get_amd_gpu_names() if BACKEND == "amd" else {}
 
     # Incremental state
-    session_totals = {"in": 0, "out": 0, "reqs": 0}
+    session_totals = {"in": 0, "out": 0, "reqs": 0, "cache": 0}
     prev_count = 0
     prev_model = None
     num_prompts = 3  # Default: show last 3 prompts
@@ -1739,7 +1959,7 @@ def main():
 
         # Reset on model switch
         if current_model != prev_model:
-            session_totals = {"in": 0, "out": 0, "reqs": 0}
+            session_totals = {"in": 0, "out": 0, "reqs": 0, "cache": 0}
             prev_count = 0
             new_valid = valid
             chart_metrics = []  # Reset chart on model switch too
@@ -1748,6 +1968,7 @@ def main():
         for m in new_valid:
             session_totals["in"] += m.get("tokens", {}).get("input_tokens", 0)
             session_totals["out"] += m.get("tokens", {}).get("output_tokens", 0)
+            session_totals["cache"] += m.get("tokens", {}).get("cache_tokens", 0)
             session_totals["reqs"] += 1
 
         prev_count = len(valid)
