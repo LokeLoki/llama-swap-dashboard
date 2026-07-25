@@ -338,9 +338,20 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
     tail_factor = 1.75 * size_factor  # MB per ubatch token for tail GPU
     compute_buffer_total = 0.0
     for i in range(num_active_gpus):
+        is_head = (i == 0)
         is_tail = (i == num_active_gpus - 1) and num_active_gpus > 1
-        fixed = tail_fixed if is_tail else head_fixed
-        factor = tail_factor if is_tail else head_factor
+        if is_head and not is_tail:
+            fixed, factor = head_fixed, head_factor
+        elif is_tail:
+            fixed, factor = tail_fixed, tail_factor
+        else:
+            # Middle GPUs: linear interpolation between head and tail
+            # Position 0=head, last=tail; intermediates scale proportionally
+            # This matches pipeline parallelism where each GPU accumulates
+            # activations for all upstream layers proportionally to its position
+            frac = i / (num_active_gpus - 1) if num_active_gpus > 1 else 0
+            fixed = head_fixed
+            factor = head_factor + (tail_factor - head_factor) * frac
         compute_buffer_total += fixed + ubatch_size * factor
 
     # 3. Flash attention KV reservation (PR #23907)
