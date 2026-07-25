@@ -590,6 +590,29 @@ def util_bar(pct, width=16):
     return bar
 
 
+def render_context_bar(cache_tok, fresh_tok, gen_tok, max_ctx, width=22):
+    """Draw a stacked ANSI bar showing context window utilization phases."""
+    if max_ctx <= 0:
+        max_ctx = max(1, cache_tok + fresh_tok + gen_tok)
+
+    total_used = cache_tok + fresh_tok + gen_tok
+    max_ctx = max(max_ctx, total_used)
+
+    c_len = int((cache_tok / max_ctx) * width)
+    f_len = int((fresh_tok / max_ctx) * width)
+    g_len = int((gen_tok / max_ctx) * width)
+    free_len = width - (c_len + f_len + g_len)
+
+    bar = (
+        f"{GREEN}{'█' * c_len}{RESET}"
+        f"{YELLOW}{'█' * f_len}{RESET}"
+        f"{CYAN}{'█' * g_len}{RESET}"
+        f"{DIM}{'░' * free_len}{RESET}"
+    )
+    pct = (total_used / max_ctx) * 100
+    return f"{bar} {DIM}{pct:2.0f}%{RESET}"
+
+
 def color_temp(temp):
     """Color-code temperature."""
     if temp <= 67:
@@ -1340,7 +1363,7 @@ def get_metrics_by_bucket(valid_metrics):
 # ── Rendering ──────────────────────────────────────────
 
 def render_prompt_log(valid_metrics, running_models=None, num_prompts=3):
-    """Render a rolling log of the last N prompts."""
+    """Render a rolling log of the last N prompts with dynamic context bars."""
     lines = []
     recent = get_last_metrics(valid_metrics, num_prompts)
     if not recent:
@@ -1349,49 +1372,50 @@ def render_prompt_log(valid_metrics, running_models=None, num_prompts=3):
     # Build model_id -> model_path mapping from running_models
     path_map = {}
     running_short = {}
+    max_ctx = 32768  # Default fallback
     if running_models:
+        if "max_context" in running_models[0] and running_models[0]["max_context"] > 0:
+            max_ctx = running_models[0]["max_context"]
         for rm in running_models:
             mid = rm.get("model_id", "")
             mp = rm.get("model_path", "")
             if mid and mp:
                 path_map[mid] = mp
-        # Also build a fallback: config key -> short name from actual running model
-        running_short = {}
-        for rm in running_models:
-            mid = rm.get("model_id", "")
-            mp = rm.get("model_path", "")
-            if mid and mp:
                 running_short[mid] = short_model_name(mp)
 
-    lines.append(f"  {BOLD}Last Prompts{RESET}")
+    lines.append(f"  {BOLD}Last Prompts{RESET} {DIM}(Context: {max_ctx/1024:.0f}k){RESET}")
     lines.append(f"  {BOLD}{DIM}{'─' * 56}{RESET}")
     for req in reversed(recent):
         t = req.get("tokens", {})
         raw_model = req.get("model", "—")
-        # Map config key to GGUF path, then shorten
         display_path = path_map.get(raw_model, raw_model)
         model = short_model_name(display_path) if raw_model != "—" else "—"
-        # Fallback: use cached short name if config key wasn't resolved to a path
         if model == short_model_name(raw_model) and raw_model in running_short:
             model = running_short[raw_model]
+
         prompt_tps = t.get("prompt_per_second", 0)
         decode_tps = t.get("tokens_per_second", 0)
+
         input_tok = t.get("input_tokens", 0)
         output_tok = t.get("output_tokens", 0)
         cached_tok = t.get("cache_tokens", 0)
+        fresh_tok = max(0, input_tok - cached_tok)
         duration = req.get("duration_ms", 0)
         req_time = format_time(req.get("timestamp", ""))
+
+        ctx_bar = render_context_bar(cached_tok, fresh_tok, output_tok, max_ctx)
 
         lines.append(
             f"  {DIM}[{req_time}]{RESET} {BOLD}{model}{RESET} "
             f"{DIM}│{RESET} {DIM}decode:{RESET} {PRIMARY_LIGHT}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET} "
-            f"{DIM}│{RESET} {DIM}prompt:{RESET} {PRIMARY}{prompt_tps:.0f}{RESET}{WHITE}pp{RESET} "
+            f"{DIM}│{RESET} {DIM}prompt:{RESET} {PRIMARY}{prompt_tps:.0f}{RESET}{WHITE}t/s{RESET} "
             f"{DIM}│{RESET} {DIM}{format_duration(duration)}{RESET}"
         )
         lines.append(
-            f"  {DIM}     {RESET}{DIM}in:{RESET}{WHITE}{input_tok}{RESET} "
-            f"{DIM}│ {RESET}{DIM}out:{RESET}{WHITE}{output_tok}{RESET} "
-            f"{DIM}│ {RESET}{DIM}cache:{RESET}{WHITE}{cached_tok}{RESET}"
+            f"  {DIM}  └─ {RESET}{ctx_bar} "
+            f"{DIM}│ {RESET}{GREEN}hit:{cached_tok}{RESET} "
+            f"{DIM}│ {RESET}{YELLOW}eval:{fresh_tok}{RESET} "
+            f"{DIM}│ {RESET}{CYAN}gen:{output_tok}{RESET}"
         )
         lines.append(f"  {DIM}{'─' * 56}{RESET}")
 
@@ -1413,7 +1437,7 @@ def render_chart(buckets):
     if not populated:
         return lines
 
-    bar_width = 20
+    bar_width = 15  # Slightly narrower to fit new data
     lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append(f"       {DIM}ctx bucket{RESET}          {DIM}total tok gen{RESET}")
     lines.append(f"  {BOLD}{DIM}{'─' * 56}{RESET}")
@@ -1451,14 +1475,18 @@ def render_chart(buckets):
             d_bar = "\u2591" * bar_width
 
         d_range = f"{PRIMARY_LIGHT}{p50:.0f}{RESET}-{PRIMARY}{p90:.0f}{RESET}"
-        d_unit = f"{WHITE}t/s{RESET}"
 
+        # Fetch the Prompt Processing (PP) median we aggregated
+        pp_median = data.get("prompt_median", 0)
+        pp_str = f"{YELLOW}PP:{pp_median:.0f}{RESET} " if pp_median > 0 else ""
+
+        d_unit = f"{WHITE}t/s{RESET}"
         count = data.get("count", 0)
         count_str = f"[{count}]"
 
         ctx_cell = f"{DIM}{ctx_str:>8}{RESET}"
         tok_cell = f"{tok_str:>5}"
-        lines.append(f"  {count_str:>5} {ctx_cell} │ {tok_cell} {d_bar} {d_range}{d_unit}")
+        lines.append(f"  {count_str:>5} {ctx_cell} │ {tok_cell} {d_bar} {pp_str}{d_range}{d_unit}")
 
     lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     return lines
