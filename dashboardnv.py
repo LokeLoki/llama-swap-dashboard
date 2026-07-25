@@ -1565,15 +1565,19 @@ def main():
         # Accumulate new metrics for the chart
         chart_metrics.extend(new_valid)
 
-        # Keyboard shortcuts
+        # Keyboard shortcuts — trigger immediate re-render
         key = _read_key()
+        key_pressed = False
         if key:
             if key in (b"+", b"=", b"'"):  # + or = (shift +)
                 num_prompts = min(10, num_prompts + 1)
+                key_pressed = True
             elif key in (b"-", b"_"):
                 num_prompts = max(1, num_prompts - 1)
+                key_pressed = True
             elif key in (b"\x12", b"c", b"r"):  # Ctrl+R (0x12) or 'r'
                 chart_metrics = []  # Reset chart buckets
+                key_pressed = True
 
         buckets = get_metrics_by_bucket(chart_metrics)
         identity = get_active_model_identity(valid, config_yaml)
@@ -1582,9 +1586,11 @@ def main():
         # Increment spinner frame for next cycle
         spinner_frame += 1
 
-        # Fixed refresh interval — subtract work time to prevent drift
+        # Fixed refresh interval — skip sleep on key press for instant feedback
         elapsed = time.time() - loop_start
-        time.sleep(max(0.1, refresh - elapsed))
+        sleep_time = 0 if key_pressed else max(0.1, refresh - elapsed)
+        if sleep_time > 0:
+            time.sleep(sleep_time)
 
 
 if __name__ == "__main__":
