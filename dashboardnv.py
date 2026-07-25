@@ -1187,6 +1187,7 @@ def render_prompt_log(valid_metrics, running_models=None, num_prompts=3):
 
     # Build model_id -> model_path mapping from running_models
     path_map = {}
+    running_short = {}
     if running_models:
         for rm in running_models:
             mid = rm.get("model_id", "")
