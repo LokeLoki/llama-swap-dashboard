@@ -1516,27 +1516,6 @@ def main():
     while True:
         loop_start = time.time()
 
-        # Keyboard shortcuts first — detect early for instant feedback
-        key = _read_key()
-        key_pressed = False
-        if key:
-            if key in (b"+", b"=", b"'"):  # + or = (shift +)
-                num_prompts = min(10, num_prompts + 1)
-                key_pressed = True
-            elif key in (b"-", b"_"):
-                num_prompts = max(1, num_prompts - 1)
-                key_pressed = True
-            elif key in (b"\x12", b"c", b"r"):  # Ctrl+R (0x12) or 'r'
-                chart_metrics = []  # Reset chart buckets
-                key_pressed = True
-
-        # On key press, render immediately with cached data for instant feedback
-        if key_pressed:
-            buckets = get_metrics_by_bucket(chart_metrics)
-            identity = get_active_model_identity(filter_valid(metrics), config_yaml)
-            render(gpus, sys_info, buckets, filter_valid(metrics), refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
-            spinner_frame += 1
-
         # Staggered refresh — only poll each source every N cycles
         loop_frame += 1
 
@@ -1593,11 +1572,25 @@ def main():
         # Increment spinner frame for next cycle
         spinner_frame += 1
 
-        # Fixed refresh interval — subtract work time to prevent drift
+        # Fixed refresh interval — responsive sleep loop for instant key feedback
         elapsed = time.time() - loop_start
         sleep_time = max(0.1, refresh - elapsed)
-        if sleep_time > 0:
-            time.sleep(sleep_time)
+        wait_end = time.time() + sleep_time
+        while time.time() < wait_end:
+            key = _read_key()
+            if key:
+                if key in (b"+", b"=", b"'"):
+                    num_prompts = min(10, num_prompts + 1)
+                elif key in (b"-", b"_"):
+                    num_prompts = max(1, num_prompts - 1)
+                elif key in (b"\x12", b"c", b"r"):
+                    chart_metrics = []
+                # Re-render instantly with cached data
+                buckets = get_metrics_by_bucket(chart_metrics)
+                identity = get_active_model_identity(valid, config_yaml)
+                render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
+                spinner_frame += 1
+            time.sleep(0.05)
 
 
 if __name__ == "__main__":
