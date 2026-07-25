@@ -1280,6 +1280,11 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     ct_display = active["cache_type"] or "f16"
     # Static payload: weights + mmproj + draft + KV cache
     static_mb = weight_mb + mmproj_mb + draft_mb + cache_mb + draft_cache_mb
+    # DeltaNet / hybrid attn: fixed recurrent state on linear layers (~300 MB)
+    # Scales with model size and number of DeltaNet layers
+    if effective_layers is not None:
+        dnet_layers = layers - effective_layers
+        static_mb += dnet_layers * 4.5  # ~4.5 MB per DeltaNet layer (recurrent state)
     # Estimate runtime overhead
     batch_size = active.get("batch_size", 2048)
     ubatch_size = active.get("ubatch_size", 512)
