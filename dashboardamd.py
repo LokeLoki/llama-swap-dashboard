@@ -1590,6 +1590,13 @@ def main():
                 chart_metrics = []  # Reset chart buckets
                 key_pressed = True
 
+        # On key press, render immediately with cached data for instant feedback
+        if key_pressed:
+            buckets = get_metrics_by_bucket(chart_metrics)
+            identity = get_active_model_identity(filter_valid(metrics), config_yaml)
+            render(gpus, sys_info, buckets, filter_valid(metrics), refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
+            spinner_frame += 1
+
         # Staggered refresh — only poll each source every N cycles
         loop_frame += 1
 
@@ -1646,9 +1653,9 @@ def main():
         # Increment spinner frame for next cycle
         spinner_frame += 1
 
-        # Fixed refresh interval — skip sleep on key press for instant feedback
+        # Fixed refresh interval — subtract work time to prevent drift
         elapsed = time.time() - loop_start
-        sleep_time = 0 if key_pressed else max(0.1, refresh - elapsed)
+        sleep_time = max(0.1, refresh - elapsed)
         if sleep_time > 0:
             time.sleep(sleep_time)
 
