@@ -1337,7 +1337,7 @@ def render_chart(buckets):
 
         # Decode value — pad visible chars, then color
         if dps > 0:
-            d_num = f"{LIGHT_GREEN}{dps:.0f}{RESET}"
+            d_num = f"{LIGHT_ORANGE}{dps:.0f}{RESET}"
             d_unit = f"{WHITE}t/s{RESET}"
         else:
             d_num = f"{DIM}      {RESET}"
@@ -1369,10 +1369,10 @@ def _fmt_num(n):
 def _format_metric_line(label, vram_str, decode_tps, align_visible=40, is_aux=False, spinner_frame=0, aux_active=False):
     """Format a single metric line with aligned decode values."""
     if decode_tps > 0:
-        decode_str = f"{DIM}decode: {RESET}{LIGHT_GREEN}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET}"
+        decode_str = f"{DIM}decode: {RESET}{LIGHT_ORANGE}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET}"
     elif is_aux:
         spinner = [" ", "◐", "◑", "◓"]
-        spinner_color = GREEN if aux_active else DIM
+        spinner_color = ORANGE if aux_active else DIM
         decode_str = f"{spinner_color}{spinner[spinner_frame % 4]}{RESET}"
     else:
         decode_str = f"{DIM}—{RESET}"
