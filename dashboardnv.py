@@ -91,6 +91,16 @@ DEFAULT_REFRESH = 2
 DEFAULT_AUX_PORT = "11434"
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.conf")
 
+# Refresh intervals (in cycles) for different data sources.
+# Set to 1 = every cycle, 2 = every other cycle, etc.
+# Local calls (nvidia-smi) are cheap — keep them fast.
+# Network calls can be staggered to reduce overhead.
+REFRESH_GPU = 1         # nvidia-smi query (local, ~10ms)
+REFRESH_METRICS = 1     # /api/performance + /api/metrics (network)
+REFRESH_RUNNING = 3     # /running endpoint (network)
+REFRESH_OLLAMA = 5      # Ollama /api/ps (network)
+REFRESH_OLLAMA_ACTIVE = 3  # nvidia-smi compute apps (local, ~5ms)
+
 # Quantization pattern regex — matches common GGUF quant labels
 # Handles: Q4_K_M, Q5_K_XL, Q6_K, IQ4_XS, F16, BF16, etc.
 QUANT_PATTERN = re.compile(
@@ -1344,7 +1354,7 @@ def render_main_model_decode(valid_metrics, sys_info):
     return lines, decode_tps
 
 
-def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, session_totals, identity=None, host=None, aux_port=None, running_models=None, num_prompts=3, spinner_frame=0):
+def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, session_totals, identity=None, host=None, aux_port=None, running_models=None, num_prompts=3, spinner_frame=0, ollama_active=False):
     """Render the dashboard."""
     sys.stdout.write("\033[H\033[0J")
     now = time.strftime("%H:%M:%S")
@@ -1426,7 +1436,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         aux_tps = aux_info.decode_tps
         aux_vram_str = f"{aux_total_mb / 1024:.1f} GB"
         aux_state = get_aux_state(aux_info, aux_port)
-        aux_active = get_ollama_active()
+        aux_active = ollama_active
         lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", aux_vram_str, aux_tps, is_aux=True, spinner_frame=spinner_frame, aux_active=aux_active))
     else:
         lines.append(f"  {BOLD}Ollama Aux ({aux_port}){RESET}  {DIM}offline{RESET}")
@@ -1489,19 +1499,41 @@ def main():
     num_prompts = 3  # Default: show last 3 prompts
     chart_metrics = []  # Metrics used for the chart (resettable via Ctrl+R)
     spinner_frame = 0  # Animation frame for aux indicator
+    ollama_active = False  # Cached Ollama active state
 
     if config_yaml:
         print(f"Model config loaded: {config_yaml}")
     print("GPU Dashboard starting...")
     print("Press Ctrl+C to exit.\n")
+    loop_frame = 0  # Cycle counter for staggered refresh
 
     while True:
         loop_start = time.time()
-        gpus = get_nvidia_smi()
-        sys_info = get_llama_swap_stats(api_url)
-        aux_info = get_auxiliary_model(aux_port)
-        running_models = fetch_running_models(host)
-        metrics = fetch_metrics(metrics_url)
+
+        # Staggered refresh — only poll each source every N cycles
+        loop_frame += 1
+
+        # GPU stats — every REFRESH_GPU cycles (local, cheap)
+        if loop_frame % REFRESH_GPU == 1:
+            gpus = get_nvidia_smi()
+
+        # Network metrics — every REFRESH_METRICS cycles
+        if loop_frame % REFRESH_METRICS == 1:
+            sys_info = get_llama_swap_stats(api_url)
+            metrics = fetch_metrics(metrics_url)
+
+        # Running models — every REFRESH_RUNNING cycles
+        if loop_frame % REFRESH_RUNNING == 1:
+            running_models = fetch_running_models(host)
+
+        # Ollama aux — every REFRESH_OLLAMA cycles
+        if loop_frame % REFRESH_OLLAMA == 1:
+            aux_info = get_auxiliary_model(aux_port)
+
+        # Ollama active check — every REFRESH_OLLAMA_ACTIVE cycles (local)
+        if loop_frame % REFRESH_OLLAMA_ACTIVE == 1:
+            ollama_active = get_ollama_active()
+
         valid = filter_valid(metrics)
 
         # Detect new metrics since last render
@@ -1539,7 +1571,7 @@ def main():
 
         buckets = get_metrics_by_bucket(chart_metrics)
         identity = get_active_model_identity(valid, config_yaml)
-        render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame)
+        render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
 
         # Increment spinner frame for next cycle
         spinner_frame += 1
