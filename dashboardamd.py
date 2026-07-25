@@ -606,17 +606,19 @@ def get_auxiliary_model(aux_port=DEFAULT_AUX_PORT):
 
 
 def get_ollama_active():
-    """Check if Ollama process is actively using a GPU via nvidia-smi compute apps."""
+    """Check if Ollama process is actively using a GPU via amd-smi process list."""
     try:
         result = subprocess.run(
-            ["nvidia-smi", "--query-compute-apps=name", "--format=csv,noheader"],
+            ["amd-smi", "process", "--json"],
             capture_output=True, text=True, timeout=2,
         )
         if result.returncode == 0:
-            for line in result.stdout.strip().split("\n"):
-                if "ollama" in line.lower():
-                    return True
-    except (subprocess.SubprocessError, OSError):
+            data = json.loads(result.stdout)
+            for gpu_data in data.get("gpu_data", []):
+                for proc in gpu_data.get("processes", []):
+                    if "ollama" in proc.get("name", "").lower():
+                        return True
+    except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
         pass
     return False
 
@@ -1574,7 +1576,7 @@ def main():
 
         # GPU stats — every REFRESH_GPU cycles (local, cheap)
         if loop_frame % REFRESH_GPU == 0:
-            gpus = get_amd_smi()
+            gpus = get_amd_smi(gpu_names)
 
         # Network metrics — every REFRESH_METRICS cycles
         if loop_frame % REFRESH_METRICS == 0:
