@@ -302,7 +302,7 @@ def _parse_batch_flags(cmd, default_batch=2048, default_ubatch=512):
     return batch, ubatch
 
 
-def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size, model_weight_mb=None):
+def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size, model_weight_mb=None, model_name=""):
     """Estimate runtime overhead beyond static model+KV payload.
 
     Returns dict with:
@@ -327,15 +327,37 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
     #    Per GPU average: 100 + ubatch × 1.08. Total matters for VRAM estimate;
     #    per-GPU distribution varies by layer fraction and split ratio.
     #
-    #    Architecture corrections:
+    #    Architecture-aware corrections:
     #    - MoE: buffer scales with ACTIVE params (not total file size)
-    #    - Qwen hybrid attn: ~25% fewer effective layers (DeltaNet is linear)
+    #    - Qwen hybrid attn: ~30% fewer effective layers (DeltaNet is linear)
     #    - Dense GQA (Llama, Gemma, Mistral): linear with weight size
     base_weight_mb = 16500.0  # 27B reference model
     if model_weight_mb:
         size_factor = model_weight_mb / base_weight_mb
     else:
         size_factor = 1.0
+
+    # Apply architecture-aware correction to compute buffer size_factor
+    path_lower = model_name.lower() if model_name else ""
+    if "-a" in path_lower:
+        # MoE: "qwen3.5-35b-a3b" → 3B active of 35B total
+        active_match = re.search(r'a(\d+)b', path_lower)
+        total_b_match = re.search(r'(\d+)b', path_lower)
+        if active_match and total_b_match:
+            active_b = int(active_match.group(1))
+            total_b = int(total_b_match.group(1))
+            active_weight_mb = model_weight_mb * (active_b / total_b)
+            size_factor = active_weight_mb / base_weight_mb
+        # Mixtral: "8x7b" → 7B active
+        mixtral_match = re.search(r'(\d+)x(\d+)b', path_lower)
+        if mixtral_match:
+            active_b = int(mixtral_match.group(2))
+            active_weight_mb = active_b * 1000.0 / 4.3  # Q4_K_M ~4.3 MB/B
+            size_factor = active_weight_mb / base_weight_mb
+    elif any(k in path_lower for k in ("qwen3.6", "qwen3.5-27b", "qwen3.5-9b", "qwen3.5-8b", "ornith", "bonsai")):
+        # Hybrid attn (Qwen 3.5/3.6, Bonsai): DeltaNet layers are linear attention (~70% compute)
+        size_factor *= 0.70
+
     compute_per_gpu = (100.0 + ubatch_size * 1.08) * size_factor
     compute_buffer_total = compute_per_gpu * num_active_gpus
 
@@ -1276,7 +1298,7 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         active_gpu_count = sum(1 for g in gpus if g.mem_used_mb > 500)
         if active_gpu_count > 1:
             num_active_gpus = active_gpu_count
-    overhead = estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size, weight_mb)
+    overhead = estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size, weight_mb, active["model_path"])
     total_vram_mb = static_mb + overhead["total_mb"]
     return MainModelVram(
         total_mb=total_vram_mb,
