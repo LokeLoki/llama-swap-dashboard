@@ -499,30 +499,11 @@ def get_auxiliary_model(aux_port=DEFAULT_AUX_PORT):
             return None
         m = models[0]
 
-        # Quick timing probe — only if not recently probed (cached in get_auxiliary_model._cache)
-        now = time.time()
-        if not hasattr(get_auxiliary_model, "_cache") or (now - get_auxiliary_model._cache["time"]) > 30:
-            probe_data = json.dumps({
-                "model": m.get("name", "Ollama Aux"),
-                "prompt": "What color is the sky?",
-                "stream": False,
-            }).encode()
-            try:
-                probe = urllib.request.Request(f"{aux_host}/api/generate", data=probe_data, method="POST")
-                with urllib.request.urlopen(probe, timeout=30) as resp:
-                    probe_resp = json.loads(resp.read())
-                decode_tps = probe_resp.get("eval_count", 0) / (probe_resp.get("eval_duration", 1) / 1e9)
-                get_auxiliary_model._cache = {"time": now, "decode_tps": decode_tps}
-            except Exception:
-                decode_tps = 0
-        else:
-            decode_tps = get_auxiliary_model._cache.get("decode_tps", 0)
-
         return AuxiliaryModel(
             name=m.get("name", "—"),
             size_vram_mb=m.get("size_vram", 0) / (1024 * 1024),
             context_length=m.get("context_length", 0),
-            decode_tps=decode_tps,
+            decode_tps=0,  # Reported from /api/ps only; no active probe
         )
     except Exception:
         pass
@@ -1288,7 +1269,7 @@ def _format_metric_line(label, vram_str, decode_tps, align_visible=40):
     if decode_tps > 0:
         decode_str = f"{DIM}decode: {RESET}{LIGHT_GREEN}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET}"
     else:
-        decode_str = f"{DIM}decode: 0t/s{RESET}"
+        decode_str = f"{DIM}idle{RESET}"
     if vram_str:
         prefix = f"{BOLD}{label}{RESET} {SOFT_WHITE}{vram_str}{RESET}"
     else:
