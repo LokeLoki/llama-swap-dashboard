@@ -4,9 +4,11 @@ Live GPU and inference monitor for llama-swap with optional Ollama auxiliary mod
 
 A clean terminal dashboard that monitors GPU stats and inference performance in real time. Auto-detects NVIDIA or AMD GPUs at startup and applies a matching color theme — no separate scripts needed.
 
+> VRAM estimation is experimental and architecture-aware. Live GPU memory from `nvidia-smi` / `amd-smi` is always authoritative.
+
 ## Requirements
 
-- **Python 3.8** (no extra packages — stdlib only)
+- **Python 3.8+** (no extra packages — stdlib only)
 - **NVIDIA** or **AMD GPU** with drivers installed
 - **llama-swap** running on localhost (default port 8080)
 
@@ -33,7 +35,7 @@ The dashboard detects your GPU backend automatically at startup:
 
 Accurate VRAM estimation with built-in architecture tables for: **Gemma family**, **Qwen family**, **Llama family**, **GLM 5.2**, **Kimi K2**, **Laguna 2.1**, **DeepSeek**, **Ornith**, **Bonsai**, **Mixtral**, **Mistral**, **Codestral**, **Mistral Nemo 2**, **Command Aura**, **Nemotron-5/H**, **Llama 4**, **Mistral Large 3**, and more.
 
-Models not in the table fall back to safe default estimates — no crashes, no wrong numbers.
+Models not in the table fall back to live GPU memory usage reported by `nvidia-smi` / `amd-smi` instead of a calculated estimate. The dashboard never crashes on unknown models.
 
 > **Note:** The architecture tables will need updates as new models are released. Edit `MODEL_ARCHITECTURES`, `QWEN_HYBRID_LAYERS`, and `NEMOTRON_ATTENTION_LAYERS` directly in the script to add or correct entries.
 
@@ -75,7 +77,7 @@ python dashboard.py --help
 
 - **GPU Status** — Real-time temp, VRAM usage, utilization, power draw, and fan speed for every GPU detected. Works with 1 GPU or 8+ — scales automatically to whatever hardware you have.
 - **System RAM** — Host memory usage from llama-swap
-- **Model VRAM** — Additive estimate: model weights + KV cache. Breakdown shown as **Static** (weights + KV) and **Runtime** (context buffers + compute + flash attention + tensor sync). Estimated values — live `nvidia-smi` / `amd-smi` remains the ground truth.
+- **Model VRAM** — Calculated estimate (weights + KV cache + runtime overhead). Breakdown shown as **Static** (weights + KV) and **Runtime** (CUDA/HIP context, compute buffers, flash-attn, tensor sync). Live **`nvidia-smi` / `amd-smi`** remains the ground truth.
 - **Decode t/s by Context Length** — Shows decode speed across input token ranges. Reveals where throughput degrades as context grows. Solid bar shows median (p50), dim tail shows p90 spread, with total output tokens. Only requests with ≥512 input tokens are charted.
 - **Last Prompts** — Rolling log of recent inference requests with decode speed, prompt speed, input/output tokens, and cache hit count.
 - **Session Tokens** — Cumulative input, output, and request count for the active model.
@@ -105,7 +107,7 @@ When offloading is active, the Static line shows `(ngl N/L)` to indicate the par
 | **Nemotron-5 / H** | ~8% of layers are attention; rest are Mamba-2 (fixed SSM state) | `effective_layers` from `NEMOTRON_ATTENTION_LAYERS`; Mamba state added for non-attention layers |
 | **Llama 4** | All layers hold KV; iRoPE only changes attention mask / chunking | Full layer count — no reduction |
 | **DeepSeek V3/R1, Kimi K2, Mistral Large 3** | MLA (Multi-head Latent Attention) — compressed KV cache | Flat ~70 KB/token estimate, scaled by quantization. Distill models use standard GQA. |
-| **Gemma** | Sliding window attention reduces cache for local layers | Window size from `GEMMA_ISWA_WINDOW`; Gemma 4 halves global layer cache when E2B/E4B heads are active |
+| **Gemma** | Sliding-window + global layers; global layers reuse keys as values (K=V) → reduced cache on those layers | Window size from `GEMMA_ISWA_WINDOW` |
 | **MTP / Speculative Decoding** | Bundled MTP adds minimal overhead; separate draft models use full formula | Bundled MTP: single-layer per head. Separate draft: full KV × `spec_draft_n`. MLA MTP shares main cache. |
 
 ### Runtime Overhead
@@ -116,6 +118,8 @@ Context buffers, compute buffers, flash attention scratch, and tensor-parallel s
 
 - Estimates assume full context; hybrid sliding window models may use less once context exceeds the window limit.
 - Layer sizes vary (especially MoE/hybrid models) — the per-layer ratio is an approximation.
+- Multi-GPU tensor-split is only partially modeled.
+- New models need table entries before accurate estimation kicks in.
 - `nvidia-smi` / `amd-smi` values are the authoritative measurement; the dashboard provides a useful planning estimate.
 
 ## Keyboard
