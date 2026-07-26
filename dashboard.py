@@ -2001,18 +2001,23 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     if main_vram_info and main_vram_info.overhead_mb > 0:
         static_gb = (main_vram_info.total_mb - main_vram_info.overhead_mb) / 1024
         overhead_gb = main_vram_info.overhead_mb / 1024
+        # Build cache type display string
+        cache_label = main_vram_info.cache_type or "f16"
+        # Show offload info when partial
         if main_vram_info.offload_ratio < 1.0:
             gpu_l = int(main_vram_info.offload_ratio * main_vram_info.layers)
             cpu_weight_mb = main_vram_info.weight_mb * (1.0 / main_vram_info.offload_ratio - 1.0)
             cpu_weight_gb = cpu_weight_mb / 1024
-            offload_note = f" {DIM}(ngl {gpu_l}/{main_vram_info.layers} · ~{cpu_weight_gb:.1f} GB on CPU){RESET}"
+            offload_line = f"  {DIM}  Offload: {RESET}{YELLOW}{cpu_weight_gb:.1f}{RESET}{WHITE} GB{RESET} {DIM}(ngl {gpu_l}/{main_vram_info.layers}){RESET}"
         else:
-            offload_note = ""
+            offload_line = ""
         lines.append(
-            f"  {DIM}  ├─ Static: {RESET}{PRIMARY_LIGHT}{static_gb:.1f} GB{RESET} {DIM}(weights + KV cache){RESET}{offload_note}"
+            f"  {DIM}  ├─ Static: {RESET}{PRIMARY_LIGHT}{static_gb:.1f}{RESET}{WHITE} GB{RESET} {DIM}(weights + KV {cache_label}){RESET}"
         )
+        if offload_line:
+            lines.append(offload_line)
         lines.append(
-            f"  {DIM}  └─ Runtime: {RESET}{ORANGE}{overhead_gb:.1f} GB{RESET} {DIM}"
+            f"  {DIM}  └─ Runtime: {RESET}{ORANGE}{overhead_gb:.1f}{RESET}{WHITE} GB{RESET} {DIM}"
             f"(ctx:{main_vram_info.cuda_context_mb:.0f} "
             f"comp:{main_vram_info.compute_buffer_mb:.0f} "
             f"fa:{main_vram_info.flash_attn_mb:.0f} "
