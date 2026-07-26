@@ -2,14 +2,7 @@
 
 Live GPU and inference monitor for llama-swap with optional Ollama auxiliary model.
 
-A clean terminal dashboard that monitors GPU stats and inference performance in real time. Available in two versions — NVIDIA and AMD — that share the same design and feature set.
-
-## Versions
-
-| Version | Script | GPU Backend | Color Theme |
-|---------|--------|-------------|-------------|
-| NVIDIA | `dashboardnv.py` | `nvidia-smi` | Cyan / Green |
-| AMD | `dashboardamd.py` | `amd-smi` (ROCm) | Orange |
+A clean terminal dashboard that monitors GPU stats and inference performance in real time. Auto-detects NVIDIA or AMD GPUs at startup and applies a matching color theme — no separate scripts needed.
 
 ## Requirements
 
@@ -19,23 +12,22 @@ A clean terminal dashboard that monitors GPU stats and inference performance in 
 
 ## Quick Start
 
-Double-click the script you need, or run from a terminal:
-
-### Windows
-
-Double-click `dashboardnv.py` (NVIDIA) or `dashboardamd.py` (AMD).
-
-### Linux / macOS
+Double-click `dashboard.py` or run from a terminal:
 
 ```bash
-# NVIDIA
-python dashboardnv.py
-
-# AMD
-python dashboardamd.py
+python dashboard.py
 ```
 
-Place the dashboard scripts in the same folder as your llama-swap `config.yaml` (optional — required for model name, quantization, and VRAM calculation features).
+Place the dashboard script in the same folder as your llama-swap `config.yaml` (optional — required for model name, quantization, and VRAM calculation features).
+
+## Auto-Detection
+
+The dashboard detects your GPU backend automatically at startup:
+
+| GPU | Detection Method | Color Theme |
+|-----|-----------------|-------------|
+| NVIDIA | `nvidia-smi` available | Green / Dark green |
+| AMD | `amd-smi` available | Orange / Red |
 
 ## Supported Models
 
@@ -68,20 +60,20 @@ aux_port=11434
 
 ```bash
 # Use a custom host
-python dashboardnv.py --host http://localhost:9090
+python dashboard.py --host http://localhost:9090
 
 # Change refresh interval (default: 2 seconds)
-python dashboardnv.py --refresh 5
+python dashboard.py --refresh 5
 
 # See help
-python dashboardnv.py --help
+python dashboard.py --help
 ```
 
 ## What It Shows
 
 - **GPU Status** — Real-time temp, VRAM usage, utilization, power draw, and fan speed for every GPU detected. Works with 1 GPU or 8+ — scales automatically to whatever hardware you have.
 - **System RAM** — Host memory usage from llama-swap
-- **Model VRAM** — Clean additive estimate: model weights + KV cache
+- **Model VRAM** — Clean additive estimate: model weights + KV cache with left-aligned activity spinners
 - **Prefill Chart** — Peak prompt and decode speed per 10K token bucket, filtered to uncached requests with ≥5 output tokens
 - **Last Prompts** — Rolling log of the 3 most recent inference requests with decode speed, prompt speed, input/output tokens, and cache hit count
 - **Session Tokens** — Cumulative input, output, and request count for the active model
@@ -107,7 +99,12 @@ This estimate is adjusted for model-specific behaviors:
 
 ## Keyboard
 
-Press **Ctrl+C** to exit.
+| Key | Action |
+|-----|--------|
+| **Ctrl+C** | Exit |
+| **Ctrl+R** | Reset chart |
+| **+** | Show more prompts in log |
+| **-** | Show fewer prompts in log |
 
 ## License
 
