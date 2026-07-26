@@ -268,8 +268,8 @@ QUANT_CACHE_BYTES = {
     "q3_k_m":  0.375,
     "q2_k":    0.25,
     # Bonsai 27B quantizations (1-bit and 1.58-bit ternary)
-    "q1_0":    0.5,
-    "q2_0":    0.5,
+    "q1_0":    0.125,
+    "q2_0":    0.1875,
 }
 
 # Gemma iSWA (Interleaved Sliding Window Attention): every other layer only
@@ -283,6 +283,37 @@ GEMMA_ISWA_WINDOW = {
     "gemma4-12b": 1024,
     "gemma4-31b": 1024,
     "gemma4-26b-a4b": 1024,
+}
+
+# Gemma 4 dual-geometry attention: sliding and global layers have different
+# KV head counts and head dimensions. Global layers use K=V (k_eq_v=True)
+# on the larger models, halving their cache cost.
+GEMMA4_DUAL_GEOMETRY = {
+    "gemma4-31b": {
+        "sliding": {"n": 50, "kv_heads": 16, "head_dim": 256},
+        "global":  {"n": 10, "kv_heads": 4,  "head_dim": 512, "k_eq_v": True},
+        "window":  1024,
+    },
+    "gemma4-26b-a4b": {
+        "sliding": {"n": 25, "kv_heads": 8, "head_dim": 256},
+        "global":  {"n": 5,  "kv_heads": 2,  "head_dim": 512, "k_eq_v": True},
+        "window":  1024,
+    },
+    "gemma4-12b": {
+        "sliding": {"n": 40, "kv_heads": 8, "head_dim": 256},
+        "global":  {"n": 8,  "kv_heads": 2,  "head_dim": 512, "k_eq_v": True},
+        "window":  1024,
+    },
+    "gemma4-e4b": {
+        "sliding": {"n": 35, "kv_heads": 2, "head_dim": 256},
+        "global":  {"n": 7,  "kv_heads": 1,  "head_dim": 512, "k_eq_v": False},
+        "window":  512,
+    },
+    "gemma4-e2b": {
+        "sliding": {"n": 28, "kv_heads": 1, "head_dim": 256},
+        "global":  {"n": 7,  "kv_heads": 1,  "head_dim": 512, "k_eq_v": False},
+        "window":  512,
+    },
 }
 
 # Qwen 3.5/3.6 hybrid attention: 3:1 DeltaNet:GatedAttn ratio.
@@ -1398,14 +1429,27 @@ def find_model_arch(model_path, model_quant):
     return None
 
 
-def calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, num_tokens, iswa_window=None, effective_layers=None, gemma4_kv=False):
+def calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, num_tokens, iswa_window=None, effective_layers=None, gemma4_kv=False, gemma4_geometry=None):
     """Calculate KV cache size in MB.
     Formula: 2 * layers * kv_heads * head_dim * cache_bytes * tokens / 1MB
     With iSWA: effective layers = layers/2 + layers/2 * min(ctx/window, 1)
     With effective_layers: overrides 'layers' for KV-bearing layers (e.g. Qwen 3.5/3.6 DeltaNet).
     With gemma4_kv: Gemma 4 global layers reuse keys as values → 50% reduction on global cache.
+    With gemma4_geometry: dual-geometry formula (sliding + global computed separately).
     Gemma 2: 1:1 global/sliding ratio (50% global).
     Gemma 3/4: 5:1 local/global ratio (~17% global). E2B uses 4:1."""
+    # Gemma 4 dual-geometry: compute sliding and global separately
+    if gemma4_geometry is not None:
+        sliding = gemma4_geometry["sliding"]
+        global_cfg = gemma4_geometry["global"]
+        window = gemma4_geometry["window"]
+        k_eq_v = global_cfg.get("k_eq_v", False)
+        # Sliding: 2 × n × kv × dim × bytes × min(tokens, window)
+        sliding_mb = 2 * sliding["n"] * sliding["kv_heads"] * sliding["head_dim"] * cache_bytes * min(num_tokens, window)
+        # Global: n × kv × dim × bytes × tokens (×1 only when k_eq_v, ×2 otherwise)
+        global_multiplier = 1 if k_eq_v else 2
+        global_mb = global_multiplier * global_cfg["n"] * global_cfg["kv_heads"] * global_cfg["head_dim"] * cache_bytes * num_tokens
+        return (sliding_mb + global_mb) / (1024 * 1024)
     # Determine which layers to use
     kv_layers = effective_layers if effective_layers is not None else layers
     if iswa_window is not None and iswa_window > 0:
@@ -1533,6 +1577,14 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     # Mistral Large 3: handled earlier by MLA branch, never reaches here.
     # Gemma 4: global layers reuse keys as values → 50% KV reduction on global cache
     gemma4_kv = iswa_window is not None and "gemma4" in path_lower
+    # Gemma 4 dual-geometry: look up sliding/global layer specs
+    gemma4_geometry = None
+    if gemma4_kv:
+        for key, geo in GEMMA4_DUAL_GEOMETRY.items():
+            clean_key = re.sub(r'[-._]', '', key.lower())
+            if clean_key in clean_path:
+                gemma4_geometry = geo
+                break
     # Get weights size
     weight_mb = active.get("model_file_mb", 0)
     if weight_mb == 0:
@@ -1559,7 +1611,7 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         mla_base_mb = 70.0 * ctx_size / (1024)
         cache_mb = mla_base_mb * (cache_bytes / 2.0)
     else:
-        cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, effective_layers, gemma4_kv)
+        cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, effective_layers, gemma4_kv, gemma4_geometry)
     # Apply --cache-ram cap if set (limits KV cache on GPU, rest spills to DRAM)
     cache_ram_cap = active.get("cache_ram_mb", -1)
     if cache_ram_cap > 0:
@@ -1577,12 +1629,12 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         elif draft_mb > 0:
             # Separate draft model (--model-draft): full KV cache scaled by spec_draft_n.
             # The draft model has its own complete architecture.
-            draft_cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, effective_layers, gemma4_kv) * spec_draft_n
+            draft_cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, effective_layers, gemma4_kv, gemma4_geometry) * spec_draft_n
         else:
             # Bundled MTP (--spec-type draft-mtp): MTP heads are single-layer transformers.
             # Qwen3.6 has 3 MTP layers baked into the GGUF; each head maintains its own KV state.
             mtp_layers = min(spec_draft_n, 3)
-            draft_cache_mb = calc_kv_cache_mb(mtp_layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, mtp_layers, gemma4_kv)
+            draft_cache_mb = calc_kv_cache_mb(mtp_layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, mtp_layers, gemma4_kv, gemma4_geometry)
     # Build cache type string for display
     ct_display = active["cache_type"] or "f16"
     # --- Partial offload correction (-ngl) ---
