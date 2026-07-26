@@ -309,13 +309,13 @@ def _parse_batch_flags(cmd, default_batch=2048, default_ubatch=512):
 
 def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size,
                               model_weight_mb=None, model_name=""):
-    """Tighter runtime overhead estimate beyond static model+KV payload.
+    """Runtime overhead beyond static model+KV. Backend-aware (CUDA vs ROCm/HIP).
 
     Returns dict with cuda_context_mb, compute_buffer_mb, flash_attn_mb,
     tensor_sync_mb, total_mb.
 
-    Based on llama.cpp logs (issues #23894, #24175, PRs #20595, #23907).
-    Coefficients tightened to reduce over-estimation on consumer GPUs.
+    Based on llama.cpp logs (issues #23894, #24175, PRs #20595, #23907) for CUDA.
+    ROCm/HIP path calibrated for RDNA3 consumer (7800 XT, 7900, etc.).
     """
     if not gpus or num_active_gpus <= 0:
         return {"cuda_context_mb": 0, "compute_buffer_mb": 0,
@@ -354,24 +354,54 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
         # Hybrid linear-attn layers → less dense compute
         size_factor *= 0.70
 
-    # 1. Fixed CUDA / backend context (per active GPU)
-    # Modern consumer measurements cluster ~250–320 MB
+    is_amd = (BACKEND == "amd")
+
+    if is_amd:
+        # --- ROCm / HIP (RDNA3 consumer: 7800 XT, 7900, etc.) ---
+        # No CUDA context. HIP fixed overhead is lower.
+        fixed_context = 120.0 * num_active_gpus
+
+        # Compute buffer still scales with ubatch; slightly milder than CUDA
+        compute_per_gpu = (60.0 + ubatch_size * 0.85) * size_factor
+        compute_buffer_total = compute_per_gpu * num_active_gpus
+
+        # FA on HIP: legacy-pool retention of f16 temps with quant KV,
+        # not a clean persistent reservation. Keep a small soft term.
+        if ctx_size > 16384:
+            fa = 80.0 * size_factor * num_active_gpus
+        else:
+            fa = 30.0 * size_factor * num_active_gpus
+
+        # Multi-GPU sync (rarely used / sequential on ROCm)
+        sync = (40.0 * size_factor * num_active_gpus) if num_active_gpus > 1 else 0.0
+
+        total = fixed_context + compute_buffer_total + fa + sync
+        weight_ref = model_weight_mb if model_weight_mb and model_weight_mb > 0 else 16000.0
+        total = min(total, 0.22 * weight_ref + 400.0)  # tighter ceiling on AMD
+
+        return {
+            "cuda_context_mb": round(fixed_context, 1),   # label stays for UI compat
+            "compute_buffer_mb": round(compute_buffer_total, 1),
+            "flash_attn_mb": round(fa, 1),
+            "tensor_sync_mb": round(sync, 1),
+            "total_mb": round(total, 1),
+        }
+
+    # --- CUDA path (existing tightened numbers) ---
     cuda_context_total = 280.0 * num_active_gpus
 
-    # 2. Compute buffer — main variable term, scales with ubatch
-    # Anchored on observed totals for ~27B / ubatch=512 on 1–2 GPUs
+    # Compute buffer — main variable term, scales with ubatch
     compute_per_gpu = (80.0 + ubatch_size * 0.95) * size_factor
     compute_buffer_total = compute_per_gpu * num_active_gpus
 
-    # 3. Flash-attn / FA scratch (persistent reservation, PR #23907 era)
-    # Real cost is flatter than pure linear-in-ctx; soften it
+    # Flash-attn / FA scratch (persistent reservation, PR #23907 era)
     if ctx_size > 8192:
         ctx_factor = min(2.0, max(0.4, ctx_size / 120000.0))
         flash_attn_mb = 160.0 * ctx_factor * size_factor * num_active_gpus
     else:
         flash_attn_mb = 50.0 * size_factor * num_active_gpus
 
-    # 4. Tensor / pipeline sync — only when multi-GPU
+    # Tensor / pipeline sync — only when multi-GPU
     if num_active_gpus > 1:
         tensor_sync_mb = 50.0 * size_factor * num_active_gpus
     else:
