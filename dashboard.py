@@ -1563,10 +1563,10 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         model_label = f"— ({host.split(':')[-1] if ':' in host else '8080'})"
     # Inference state
     main_state = get_inference_state(valid_metrics, gpus) if valid_metrics else None
-    # Inference activity spinner (above main model)
+    lines.append(_format_metric_line(model_label, main_vram_str))
+    # Inference activity spinner (above aux)
     infer_active = decode_tps > 0
     lines.append(f"  {_inference_spinner(spinner_frame, infer_active)}  {DIM}decode:{RESET} {PRIMARY_LIGHT}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET}")
-    lines.append(_format_metric_line(model_label, main_vram_str))
     if aux_info:
         aux_name = aux_info.name
         aux_short = aux_name.split(":")[0]
