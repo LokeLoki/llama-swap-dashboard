@@ -1106,102 +1106,138 @@ def detect_local_servers(gpus=None):
     Returns a list of running-model dicts compatible with the /running endpoint,
     or None if no servers found."""
     try:
-        result = subprocess.run(
-            ["ps", "aux"], capture_output=True, text=True, timeout=5
-        )
-        if result.returncode != 0:
-            return None
+        # Platform-specific process discovery
+        if sys.platform == "win32":
+            result = subprocess.run(
+                ["wmic", "process", "get", "ProcessId,CommandLine", "/format:list"],
+                capture_output=True, text=True, timeout=5
+            )
+            if result.returncode != 0:
+                return None
 
-        servers = []
-        for line in result.stdout.splitlines()[1:]:  # skip header
-            parts = line.split(None, 10)
-            if len(parts) < 11:
-                continue
-            cmd_full = parts[10]
-            # Match llama-server or llama-server.exe
-            if not re.search(r'llama[-_]?server', cmd_full):
-                continue
+            servers = []
+            # Parse wmic output: "CommandLine=...\nProcessId=..." blocks
+            current_cmd = ""
+            current_pid = ""
+            for line in result.stdout.splitlines():
+                line = line.strip()
+                if line.startswith("CommandLine="):
+                    current_cmd = line[len("CommandLine="):].strip()
+                elif line.startswith("ProcessId="):
+                    current_pid = line[len("ProcessId="):].strip()
+                    # Process complete block
+                    if current_cmd and re.search(r'llama[-_]?server', current_cmd, re.IGNORECASE):
+                        servers.append({"pid": current_pid, "cmd": current_cmd})
+                    current_cmd = ""
+                    current_pid = ""
 
-            cmd = cmd_full
-            model_path = ""
-            m_match = re.search(r'(?:-m|--model)\s+"([^"]+\.gguf)"', cmd)
-            if not m_match:
-                m_match = re.search(r'(?:-m|--model)\s+(\S+\.gguf)', cmd)
-            if m_match:
-                model_path = m_match.group(1)
+            if not servers:
+                return None
 
-            model_quant = parse_quant_from_path(model_path)
-            model_file_mb = 0
-            if model_path and '*' not in model_path:
-                try:
-                    model_file_mb = os.path.getsize(model_path) / (1024 * 1024)
-                except (OSError, TypeError):
-                    pass
+        else:
+            result = subprocess.run(
+                ["ps", "aux"], capture_output=True, text=True, timeout=5
+            )
+            if result.returncode != 0:
+                return None
 
-            cache_type = None
-            ctk_match = re.search(r'(?:-ctk|--cache-type-k)\s+(\S+)', cmd)
-            if ctk_match:
-                cache_type = ctk_match.group(1).lower()
+            servers = []
+            for line in result.stdout.splitlines()[1:]:  # skip header
+                parts = line.split(None, 10)
+                if len(parts) < 11:
+                    continue
+                cmd_full = parts[10]
+                # Match llama-server or llama-server.exe
+                if not re.search(r'llama[-_]?server', cmd_full):
+                    continue
 
-            max_context = 0
-            ctx_match = re.search(r'\s-c\s+(\d+)', cmd)
-            if ctx_match:
-                try:
-                    max_context = int(ctx_match.group(1))
-                except ValueError:
-                    pass
+                servers.append({"pid": parts[1], "cmd": cmd_full})
 
-            batch_size, ubatch_size = _parse_batch_flags(cmd)
+            if not servers:
+                return None
 
-            ngl = 999
-            ngl_match = re.search(r'(?:-ngl|--n-gpu-layers|--gpu-layers)\s+(\S+)', cmd)
-            if ngl_match:
-                ngl_val = ngl_match.group(1)
-                if ngl_val in ('auto', 'all'):
-                    ngl = 999
-                else:
+            result_servers = []
+            for srv in servers:
+                cmd = srv["cmd"]
+                model_path = ""
+                m_match = re.search(r'(?:-m|--model)\s+"([^"]+\.gguf)"', cmd)
+                if not m_match:
+                    m_match = re.search(r'(?:-m|--model)\s+(\S+\.gguf)', cmd)
+                if m_match:
+                    model_path = m_match.group(1)
+
+                model_quant = parse_quant_from_path(model_path)
+                model_file_mb = 0
+                if model_path and '*' not in model_path:
                     try:
-                        ngl = int(ngl_val)
+                        model_file_mb = os.path.getsize(model_path) / (1024 * 1024)
+                    except (OSError, TypeError):
+                        pass
+
+                cache_type = None
+                ctk_match = re.search(r'(?:-ctk|--cache-type-k)\s+(\S+)', cmd)
+                if ctk_match:
+                    cache_type = ctk_match.group(1).lower()
+
+                max_context = 0
+                ctx_match = re.search(r'\s-c\s+(\d+)', cmd)
+                if ctx_match:
+                    try:
+                        max_context = int(ctx_match.group(1))
                     except ValueError:
                         pass
-                if ngl == -1:
-                    ngl = 999
 
-            split_pct = None
-            ts_match = re.search(r'(?:-ts|--tensor-split)\s+([\d.]+(?:,[\d.]+)*)', cmd)
-            if ts_match:
-                raw = ts_match.group(1).split(',')
-                split_ratios = [float(v) for v in raw]
-                total = sum(split_ratios)
-                if total > 0:
-                    split_pct = [round(v / total * 100) for v in split_ratios]
+                batch_size, ubatch_size = _parse_batch_flags(cmd)
 
-            port = 8080
-            port_match = re.search(r'(?:--port|-p)\s+(\d+)', cmd)
-            if port_match:
-                port = int(port_match.group(1))
+                ngl = 999
+                ngl_match = re.search(r'(?:-ngl|--n-gpu-layers|--gpu-layers)\s+(\S+)', cmd)
+                if ngl_match:
+                    ngl_val = ngl_match.group(1)
+                    if ngl_val in ('auto', 'all'):
+                        ngl = 999
+                    else:
+                        try:
+                            ngl = int(ngl_val)
+                        except ValueError:
+                            pass
+                    if ngl == -1:
+                        ngl = 999
 
-            servers.append({
-                "model_id": os.path.basename(model_path) if model_path else f"llama-server:{port}",
-                "model_path": model_path,
-                "model_quant": model_quant or "unknown",
-                "model_file_mb": model_file_mb,
-                "mmproj_file_mb": 0,
-                "draft_file_mb": 0,
-                "max_context": max_context,
-                "cache_type": cache_type,
-                "cache_ram_mb": -1,
-                "cmd": cmd,
-                "host": f"http://localhost:{port}",
-                "parallel": 1,
-                "batch_size": batch_size,
-                "ubatch_size": ubatch_size,
-                "ngl": ngl,
-                "split_pct": split_pct,
-                "proxy": None,
-            })
+                split_pct = None
+                ts_match = re.search(r'(?:-ts|--tensor-split)\s+([\d.]+(?:,[\d.]+)*)', cmd)
+                if ts_match:
+                    raw = ts_match.group(1).split(',')
+                    split_ratios = [float(v) for v in raw]
+                    total = sum(split_ratios)
+                    if total > 0:
+                        split_pct = [round(v / total * 100) for v in split_ratios]
 
-        return servers if servers else None
+                port = 8080
+                port_match = re.search(r'(?:--port|-p)\s+(\d+)', cmd)
+                if port_match:
+                    port = int(port_match.group(1))
+
+                result_servers.append({
+                    "model_id": os.path.basename(model_path) if model_path else f"llama-server:{port}",
+                    "model_path": model_path,
+                    "model_quant": model_quant or "unknown",
+                    "model_file_mb": model_file_mb,
+                    "mmproj_file_mb": 0,
+                    "draft_file_mb": 0,
+                    "max_context": max_context,
+                    "cache_type": cache_type,
+                    "cache_ram_mb": -1,
+                    "cmd": cmd,
+                    "host": f"http://localhost:{port}",
+                    "parallel": 1,
+                    "batch_size": batch_size,
+                    "ubatch_size": ubatch_size,
+                    "ngl": ngl,
+                    "split_pct": split_pct,
+                    "proxy": None,
+                })
+
+            return result_servers if result_servers else None
     except (subprocess.SubprocessError, OSError, TimeoutError):
         return None
 
@@ -1659,6 +1695,38 @@ def fetch_prometheus_metrics(proxy_url):
     except Exception:
         pass
     return None
+
+
+def fetch_plain_server_stats(host):
+    """Best-effort live stats from a plain llama-server /metrics endpoint.
+    Returns dict with decode_tps, prompt_tps, or empty dict on failure.
+    Silent failure — never breaks the dashboard.
+    """
+    try:
+        url = f"{host.rstrip('/')}/metrics"
+        req = urllib.request.Request(url)
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            text = resp.read().decode("utf-8", errors="replace")
+
+        stats = {}
+        for line in text.splitlines():
+            if line.startswith("llamacpp:prompt_tokens_seconds"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    try:
+                        stats["prompt_tps"] = float(parts[-1])
+                    except ValueError:
+                        pass
+            elif line.startswith("llamacpp:predicted_tokens_seconds"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    try:
+                        stats["decode_tps"] = float(parts[-1])
+                    except ValueError:
+                        pass
+        return stats
+    except Exception:
+        return {}
 
 
 def fetch_metrics(metrics_url):
@@ -2141,6 +2209,15 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         lines.append(f"  {DIM}  llama-server -m your-model.gguf -ngl 99 --port 8080{RESET}")
         lines.append(f"  {DIM}Then re-run this dashboard.{RESET}")
         lines.append(f"  {DIM}{'─' * 56}{RESET}")
+    # Detect plain-server mode + fetch live stats
+    plain_mode = bool(running_models and running_models[0].get("_plain_mode"))
+    plain_stats = {}
+    if plain_mode:
+        host_url = running_models[0].get("host") or f"http://localhost:{(host.split(':')[-1] if ':' in host else '8080')}"
+        plain_stats = fetch_plain_server_stats(host_url)
+        # Override decode_tps from plain metrics if available and higher-priority than empty valid_metrics
+        if plain_stats.get("decode_tps", 0) > 0:
+            decode_tps = plain_stats["decode_tps"]
     # Build model label from actual model path (not config key)
     actual_model_path = None
     if running_models:
@@ -2213,6 +2290,8 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     chart = render_chart(buckets)
     if chart:
         lines.extend(chart)
+    elif plain_mode and not chart:
+        lines.append(f"  {DIM}Live speeds only (no chart history — plain llama-server mode){RESET}")
 
     lines.append("")
 
@@ -2309,6 +2388,10 @@ def main():
                 # Fallback: if /running endpoint unavailable, detect local servers
                 if running_models is None:
                     running_models = detect_local_servers(gpus)
+                    # Mark plain-server mode so render can adapt
+                    if running_models:
+                        for rm in running_models:
+                            rm["_plain_mode"] = True
     
             # Ollama aux — every REFRESH_OLLAMA cycles
             if loop_frame % REFRESH_OLLAMA == 0:
