@@ -193,12 +193,6 @@ MODEL_ARCHITECTURES = {
     "gemma2-27b":    (46, 16, 128),
     "gemma2-9b":     (42, 8, 256),
     "gemma2-2b":     (26, 4, 256),
-    # Gemma 4 (hybrid sliding/global attention — use sliding layer values for KV cache)
-    "gemma4-e4b":    (42, 8, 256),
-    "gemma4-e2b":    (35, 8, 256),
-    "gemma4-12b":    (48, 8, 256),
-    "gemma4-31b":    (60, 8, 256),
-    "gemma4-26b-a4b": (30, 8, 256),
     # Bonsai 27B (binary/ternary quantization of Qwen3.6-27B — architecture unchanged)
     "bonsai":        (64, 4, 256),
     # DeepSeek
@@ -1575,8 +1569,8 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
                 break
     # Llama 4: full layers (no reduction) — iRoPE/chunked attention does not remove KV from layers.
     # Mistral Large 3: handled earlier by MLA branch, never reaches here.
-    # Gemma 4: global layers reuse keys as values → 50% KV reduction on global cache
-    gemma4_kv = iswa_window is not None and "gemma4" in path_lower
+    # Gemma 4: dual-geometry — sliding and global layers have separate KV specs
+    gemma4_kv = "gemma4" in path_lower
     # Gemma 4 dual-geometry: look up sliding/global layer specs
     gemma4_geometry = None
     if gemma4_kv:
@@ -1585,6 +1579,9 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
             if clean_key in clean_path:
                 gemma4_geometry = geo
                 break
+    # When dual-geometry is authoritative, dummy arch values are fine (ignored by calc_kv_cache_mb)
+    if gemma4_geometry is not None:
+        layers, kv_heads, head_dim = 0, 0, 0
     # Get weights size
     weight_mb = active.get("model_file_mb", 0)
     if weight_mb == 0:
@@ -1651,8 +1648,9 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     # Runtime overhead stays on GPU — leave unscaled
     # Static payload: weights + mmproj + draft + KV cache
     static_mb = weight_mb + mmproj_mb + draft_mb + cache_mb + draft_cache_mb
-    # DeltaNet / hybrid attn: fixed recurrent state on linear layers (~300 MB)
-    # Scales with model size and number of non-KV layers on GPU
+    # DeltaNet / hybrid attn: fixed recurrent state on linear layers
+    # Approximate fixed state size per non-attention layer on GPU (MB)
+    # DeltaNet ≈ 4.5 MB/layer, Mamba-2 ≈ 6 MB/layer — refine with real measurements
     if effective_layers is not None:
         non_kv_layers = max(0, layers - effective_layers)
         # Only count non-KV layers that are on GPU
