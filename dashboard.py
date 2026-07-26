@@ -212,6 +212,9 @@ MODEL_ARCHITECTURES = {
     "mixtral-8x7b":      (32, 8, 128),
     "mixtral-8x22b":     (56, 8, 128),
     "codestral":         (40, 8, 128),
+    "mistral-nemo-2":    (40, 8, 128),
+    # Cohere
+    "command-aura":      (72, 8, 128),
     # Llama 3.2 / 3.3
     "llama3.3-70b":      (80, 8, 128),
     "llama3.3-8b":       (32, 8, 128),
@@ -1089,6 +1092,8 @@ def short_model_name(model_path_or_id):
         family = 'phi'
     elif 'mistral' in text:
         family = 'm'
+    elif 'mistral-nemo-2' in text or 'mistral_nemo_2' in text:
+        family = 'mn2'
     elif 'nemotron' in text:
         family = 'n'
     elif 'internlm' in text:
