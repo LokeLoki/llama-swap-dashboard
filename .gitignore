@@ -26,3 +26,5 @@ benchmark_pp_decode.bat
 start-aux-manager.bat
 start_hermes.ps1
 swap-to-27i.bat
+dashboardnv.py
+dashboardamd.py
