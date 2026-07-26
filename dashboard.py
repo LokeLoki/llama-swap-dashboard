@@ -85,6 +85,8 @@ class MainModelVram:
     draft_mb: float
     cache_mb: float
     cache_type: str
+    offload_ratio: float = 1.0
+    layers: int = 0
     # Runtime overhead estimates (not in static payload)
     cuda_context_mb: float = 0.0
     compute_buffer_mb: float = 0.0
@@ -1026,6 +1028,16 @@ def fetch_running_models(host):
                     pass
             # Parse batch/ubatch flags
             batch_size, ubatch_size = _parse_batch_flags(cmd)
+            # Parse -ngl / --n-gpu-layers / --gpu-layers (partial offload)
+            ngl = 999  # default: full offload
+            ngl_match = re.search(r'(?:-ngl|--n-gpu-layers|--gpu-layers)\s+(-?\d+)', cmd)
+            if ngl_match:
+                try:
+                    ngl = int(ngl_match.group(1))
+                except ValueError:
+                    pass
+                if ngl == -1:
+                    ngl = 999  # treat -1 as "all layers on GPU"
             # Parse ALL flags generically from cmd
             all_flags = {}
             for flag_match in re.finditer(r'(?:^|\s)(--[a-zA-Z0-9_-]+|--[a-zA-Z0-9_-]+(?:\s+[^\s"]+)|-[a-zA-Z]\s+([^\s"]+))', cmd):
@@ -1059,6 +1071,7 @@ def fetch_running_models(host):
                 "parallel": parallel,
                 "batch_size": batch_size,
                 "ubatch_size": ubatch_size,
+                "ngl": ngl,
                 "all_flags": all_flags,
                 "proxy": item.get("proxy"),
             })
@@ -1365,19 +1378,33 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
             draft_cache_mb = calc_kv_cache_mb(mtp_layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, mtp_layers, gemma4_kv)
     # Build cache type string for display
     ct_display = active["cache_type"] or "f16"
+    # --- Partial offload correction (-ngl) ---
+    ngl = active.get("ngl", 999)
+    if layers and layers > 0:
+        gpu_layers = max(0, min(int(ngl), layers))
+        offload_ratio = gpu_layers / float(layers)
+    else:
+        offload_ratio = 1.0  # unknown arch → assume full GPU
+    # Scale the parts that move with -ngl: weights + KV cache
+    weight_mb = weight_mb * offload_ratio
+    cache_mb = cache_mb * offload_ratio
+    # mmproj / draft usually stay on GPU — leave unscaled
+    # Runtime overhead stays on GPU — leave unscaled
     # Static payload: weights + mmproj + draft + KV cache
     static_mb = weight_mb + mmproj_mb + draft_mb + cache_mb + draft_cache_mb
     # DeltaNet / hybrid attn: fixed recurrent state on linear layers (~300 MB)
-    # Scales with model size and number of non-KV layers
+    # Scales with model size and number of non-KV layers on GPU
     if effective_layers is not None:
         non_kv_layers = max(0, layers - effective_layers)
+        # Only count non-KV layers that are on GPU
+        gpu_non_kv = max(0, min(ngl, layers) - effective_layers)
 
         if "nemotron" in path_lower:
             # Mamba-2 SSM state is larger than DeltaNet on average
-            static_mb += non_kv_layers * 6.0
+            static_mb += gpu_non_kv * 6.0
         else:
             # Qwen DeltaNet-style
-            static_mb += non_kv_layers * 4.5
+            static_mb += gpu_non_kv * 4.5
     # Estimate runtime overhead
     batch_size = active.get("batch_size", 2048)
     ubatch_size = active.get("ubatch_size", 512)
@@ -1406,6 +1433,8 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         draft_mb=draft_mb,
         cache_mb=cache_mb,
         cache_type=ct_display,
+        offload_ratio=offload_ratio,
+        layers=layers,
         cuda_context_mb=overhead["cuda_context_mb"],
         compute_buffer_mb=overhead["compute_buffer_mb"],
         flash_attn_mb=overhead["flash_attn_mb"],
@@ -1971,8 +2000,13 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     if main_vram_info and main_vram_info.overhead_mb > 0:
         static_gb = (main_vram_info.total_mb - main_vram_info.overhead_mb) / 1024
         overhead_gb = main_vram_info.overhead_mb / 1024
+        if main_vram_info.offload_ratio < 1.0:
+            gpu_l = int(main_vram_info.offload_ratio * main_vram_info.layers)
+            offload_note = f" {DIM}(ngl {gpu_l}/{main_vram_info.layers}){RESET}"
+        else:
+            offload_note = ""
         lines.append(
-            f"  {DIM}  ├─ Static: {RESET}{PRIMARY_LIGHT}{static_gb:.1f} GB{RESET} {DIM}(weights + KV cache){RESET}"
+            f"  {DIM}  ├─ Static: {RESET}{PRIMARY_LIGHT}{static_gb:.1f} GB{RESET} {DIM}(weights + KV cache){RESET}{offload_note}"
         )
         lines.append(
             f"  {DIM}  └─ Runtime: {RESET}{ORANGE}{overhead_gb:.1f} GB{RESET} {DIM}"
