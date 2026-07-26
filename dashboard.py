@@ -1097,7 +1097,7 @@ def fetch_running_models(host):
         return None  # llama-swap /running unavailable
 
 
-def detect_local_servers(gpus=None):
+def detect_local_servers():
     """Fallback: detect running llama-server processes via system process list.
 
     Scans for llama-server / llama-server.exe processes, parses their command
@@ -2416,7 +2416,7 @@ def main():
                 running_models = fetch_running_models(host)
                 # Fallback: if /running endpoint unavailable, detect local servers
                 if running_models is None:
-                    running_models = detect_local_servers(gpus)
+                    running_models = detect_local_servers()
                     # Mark plain-server mode so render can adapt
                     if running_models:
                         for rm in running_models:
