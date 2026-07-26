@@ -1922,7 +1922,7 @@ def render_main_model_decode(valid_metrics, sys_info, main_vram_info=None):
             cpu_mb = main_vram_info.weight_mb * (1.0 - main_vram_info.offload_ratio)
             cpu_mb += main_vram_info.cache_mb * (1.0 - main_vram_info.offload_ratio)
             cpu_gb = cpu_mb / 1024
-            offload_label = f" {DIM_CYAN}{cpu_gb:.1f} GB{RESET}"
+            offload_label = f" {DIM_CYAN}(cpu) {cpu_gb:.1f} GB{RESET}"
         lines.append(f"  {BOLD}System RAM{RESET}: {sys_bar} {sys_mem_str}{offload_label}")
 
     return lines, decode_tps
@@ -1987,7 +1987,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
             if pct > 0:
                 gpu_overhead_mb = main_vram_info.overhead_mb * (pct / 100)
                 gpu_overhead_gb = gpu_overhead_mb / 1024
-                runtime_label = f" {DIM_CYAN}{gpu_overhead_gb:.1f} GB{RESET}"
+                runtime_label = f" {DIM_CYAN}(rtime) {gpu_overhead_gb:.1f} GB{RESET}"
 
         lines.append(f"  {BOLD}{WHITE}[GPU {gpu.id}] {gpu.name}{RESET}")
         lines.append(f"  {status}  {DIM}{color_temp(temp)}{temp}°C{RESET}")
