@@ -1156,88 +1156,89 @@ def detect_local_servers(gpus=None):
             if not servers:
                 return None
 
-            result_servers = []
-            for srv in servers:
-                cmd = srv["cmd"]
-                model_path = ""
-                m_match = re.search(r'(?:-m|--model)\s+"([^"]+\.gguf)"', cmd)
-                if not m_match:
-                    m_match = re.search(r'(?:-m|--model)\s+(\S+\.gguf)', cmd)
-                if m_match:
-                    model_path = m_match.group(1)
+        # Shared: parse raw server entries into rich model dicts (both platforms)
+        result_servers = []
+        for srv in servers:
+            cmd = srv["cmd"]
+            model_path = ""
+            m_match = re.search(r'(?:-m|--model)\s+"([^"]+\.gguf)"', cmd)
+            if not m_match:
+                m_match = re.search(r'(?:-m|--model)\s+(\S+\.gguf)', cmd)
+            if m_match:
+                model_path = m_match.group(1)
 
-                model_quant = parse_quant_from_path(model_path)
-                model_file_mb = 0
-                if model_path and '*' not in model_path:
+            model_quant = parse_quant_from_path(model_path)
+            model_file_mb = 0
+            if model_path and '*' not in model_path:
+                try:
+                    model_file_mb = os.path.getsize(model_path) / (1024 * 1024)
+                except (OSError, TypeError):
+                    pass
+
+            cache_type = None
+            ctk_match = re.search(r'(?:-ctk|--cache-type-k)\s+(\S+)', cmd)
+            if ctk_match:
+                cache_type = ctk_match.group(1).lower()
+
+            max_context = 0
+            ctx_match = re.search(r'\s-c\s+(\d+)', cmd)
+            if ctx_match:
+                try:
+                    max_context = int(ctx_match.group(1))
+                except ValueError:
+                    pass
+
+            batch_size, ubatch_size = _parse_batch_flags(cmd)
+
+            ngl = 999
+            ngl_match = re.search(r'(?:-ngl|--n-gpu-layers|--gpu-layers)\s+(\S+)', cmd)
+            if ngl_match:
+                ngl_val = ngl_match.group(1)
+                if ngl_val in ('auto', 'all'):
+                    ngl = 999
+                else:
                     try:
-                        model_file_mb = os.path.getsize(model_path) / (1024 * 1024)
-                    except (OSError, TypeError):
-                        pass
-
-                cache_type = None
-                ctk_match = re.search(r'(?:-ctk|--cache-type-k)\s+(\S+)', cmd)
-                if ctk_match:
-                    cache_type = ctk_match.group(1).lower()
-
-                max_context = 0
-                ctx_match = re.search(r'\s-c\s+(\d+)', cmd)
-                if ctx_match:
-                    try:
-                        max_context = int(ctx_match.group(1))
+                        ngl = int(ngl_val)
                     except ValueError:
                         pass
+                if ngl == -1:
+                    ngl = 999
 
-                batch_size, ubatch_size = _parse_batch_flags(cmd)
+            split_pct = None
+            ts_match = re.search(r'(?:-ts|--tensor-split)\s+([\d.]+(?:,[\d.]+)*)', cmd)
+            if ts_match:
+                raw = ts_match.group(1).split(',')
+                split_ratios = [float(v) for v in raw]
+                total = sum(split_ratios)
+                if total > 0:
+                    split_pct = [round(v / total * 100) for v in split_ratios]
 
-                ngl = 999
-                ngl_match = re.search(r'(?:-ngl|--n-gpu-layers|--gpu-layers)\s+(\S+)', cmd)
-                if ngl_match:
-                    ngl_val = ngl_match.group(1)
-                    if ngl_val in ('auto', 'all'):
-                        ngl = 999
-                    else:
-                        try:
-                            ngl = int(ngl_val)
-                        except ValueError:
-                            pass
-                    if ngl == -1:
-                        ngl = 999
+            port = 8080
+            port_match = re.search(r'(?:--port|-p)\s+(\d+)', cmd)
+            if port_match:
+                port = int(port_match.group(1))
 
-                split_pct = None
-                ts_match = re.search(r'(?:-ts|--tensor-split)\s+([\d.]+(?:,[\d.]+)*)', cmd)
-                if ts_match:
-                    raw = ts_match.group(1).split(',')
-                    split_ratios = [float(v) for v in raw]
-                    total = sum(split_ratios)
-                    if total > 0:
-                        split_pct = [round(v / total * 100) for v in split_ratios]
+            result_servers.append({
+                "model_id": os.path.basename(model_path) if model_path else f"llama-server:{port}",
+                "model_path": model_path,
+                "model_quant": model_quant or "unknown",
+                "model_file_mb": model_file_mb,
+                "mmproj_file_mb": 0,
+                "draft_file_mb": 0,
+                "max_context": max_context,
+                "cache_type": cache_type,
+                "cache_ram_mb": -1,
+                "cmd": cmd,
+                "host": f"http://localhost:{port}",
+                "parallel": 1,
+                "batch_size": batch_size,
+                "ubatch_size": ubatch_size,
+                "ngl": ngl,
+                "split_pct": split_pct,
+                "proxy": None,
+            })
 
-                port = 8080
-                port_match = re.search(r'(?:--port|-p)\s+(\d+)', cmd)
-                if port_match:
-                    port = int(port_match.group(1))
-
-                result_servers.append({
-                    "model_id": os.path.basename(model_path) if model_path else f"llama-server:{port}",
-                    "model_path": model_path,
-                    "model_quant": model_quant or "unknown",
-                    "model_file_mb": model_file_mb,
-                    "mmproj_file_mb": 0,
-                    "draft_file_mb": 0,
-                    "max_context": max_context,
-                    "cache_type": cache_type,
-                    "cache_ram_mb": -1,
-                    "cmd": cmd,
-                    "host": f"http://localhost:{port}",
-                    "parallel": 1,
-                    "batch_size": batch_size,
-                    "ubatch_size": ubatch_size,
-                    "ngl": ngl,
-                    "split_pct": split_pct,
-                    "proxy": None,
-                })
-
-            return result_servers if result_servers else None
+        return result_servers if result_servers else None
     except (subprocess.SubprocessError, OSError, TimeoutError):
         return None
 
