@@ -469,6 +469,7 @@ RESET = "\033[0m"
 BOLD = "\033[1m"
 ITALIC = "\033[3m"
 CYAN = "\033[96m"
+LIGHT_BLUE = "\033[94m"
 GREEN = "\033[92m"
 LIGHT_GREEN = "\033[1;92m"
 ORANGE = "\033[33m"
@@ -1039,6 +1040,15 @@ def fetch_running_models(host):
                     pass
                 if ngl == -1:
                     ngl = 999  # treat -1 as "all layers on GPU"
+            # Parse -ts / --tensor-split (multi-GPU proportional split)
+            split_pct = None
+            ts_match = re.search(r'(?:-ts|--tensor-split)\s+([\d.]+(?:,[\d.]+)*)', cmd)
+            if ts_match:
+                raw = ts_match.group(1).split(',')
+                split_ratios = [float(v) for v in raw]
+                total = sum(split_ratios)
+                if total > 0:
+                    split_pct = [round(v / total * 100) for v in split_ratios]
             # Parse ALL flags generically from cmd
             all_flags = {}
             for flag_match in re.finditer(r'(?:^|\s)(--[a-zA-Z0-9_-]+|--[a-zA-Z0-9_-]+(?:\s+[^\s"]+)|-[a-zA-Z]\s+([^\s"]+))', cmd):
@@ -1073,6 +1083,7 @@ def fetch_running_models(host):
                 "batch_size": batch_size,
                 "ubatch_size": ubatch_size,
                 "ngl": ngl,
+                "split_pct": split_pct,
                 "all_flags": all_flags,
                 "proxy": item.get("proxy"),
             })
@@ -1926,6 +1937,11 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         sys.stdout.flush()
         return
 
+    # Multi-GPU tensor split percentages (from active model's -ts flag)
+    split_pct = None
+    if running_models and running_models[0].get("split_pct"):
+        split_pct = running_models[0]["split_pct"]
+
     for i, gpu in enumerate(gpus):
         temp = gpu.temp_c
         mem_used = gpu.mem_used_mb
@@ -1946,7 +1962,14 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         util_bar_str = util_bar(util, 14)
         mem_str = f"{mem_used / 1024:.1f} / {mem_total / 1024:.0f} GB"
 
-        lines.append(f"  {BOLD}{WHITE}[GPU {gpu.id}] {gpu.name}{RESET}")
+        # Tensor split percentage for this GPU
+        split_label = ""
+        if split_pct and i < len(split_pct):
+            pct = split_pct[i]
+            if pct > 0:
+                split_label = f" {LIGHT_BLUE}[{pct}%]{RESET}"
+
+        lines.append(f"  {BOLD}{WHITE}[GPU {gpu.id}] {gpu.name}{split_label}{RESET}")
         lines.append(f"  {status}  {DIM}{color_temp(temp)}{temp}°C{RESET}")
         lines.append(f"  {DIM}VRAM:{RESET} {vram_bar} {mem_str}")
         lines.append(f"  {DIM}UTIL:{RESET} {status_color}{util_bar_str}{RESET} {util}%")
