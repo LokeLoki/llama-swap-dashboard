@@ -14,6 +14,7 @@ Options:
 """
 
 import dataclasses
+import glob
 import json
 import os
 import re
@@ -954,14 +955,14 @@ def fetch_running_models(host):
             if model_path:
                 # Resolve glob wildcards in path (e.g. snapshots/*/model.gguf)
                 resolved_path = model_path if '*' not in model_path else None
-                import glob as _glob
-                candidates = _glob.glob(model_path)
+                candidates = glob.glob(model_path)
                 if candidates:
                     resolved_path = candidates[0]
-                try:
-                    model_file_mb = os.path.getsize(resolved_path) / (1024 * 1024)
-                except OSError:
-                    pass
+                if resolved_path:
+                    try:
+                        model_file_mb = os.path.getsize(resolved_path) / (1024 * 1024)
+                    except (OSError, TypeError):
+                        pass
             # Parse cache type from -ctk/--cache-type-k flag
             cache_type = None
             ctk_match = re.search(r'(?:-ctk|--cache-type-k)\s+(\S+)', cmd)
@@ -1579,8 +1580,8 @@ def _parse_yaml_models_simple(yaml_path):
                         model_map[current_model] = m_match.group(1)
                         current_model = None
         return model_map
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
-        return {}  # Ollama /api/ps unavailable
+    except (IOError, OSError, ValueError):
+        return {}  # Failed to read / parse config.yaml
 
 
 def get_active_model_identity(valid_metrics, config_yaml_path=None):
@@ -2183,11 +2184,14 @@ def main():
             while time.time() < wait_end:
                 key = _read_key()
                 if key:
-                    if key in (b"+", b"=", b"'"):
+                    # Normalize: Unix returns str, Windows returns bytes
+                    if isinstance(key, bytes):
+                        key = key.decode(errors="ignore")
+                    if key in ("+", "=", "'"):
                         num_prompts = min(10, num_prompts + 1)
-                    elif key in (b"-", b"_"):
+                    elif key in ("-", "_"):
                         num_prompts = max(1, num_prompts - 1)
-                    elif key in (b"\x12", b"c", b"r"):
+                    elif key in ("\x12", "c", "r"):
                         chart_metrics = []
                     # Re-render instantly with cached data
                     buckets = get_metrics_by_bucket(chart_metrics)
