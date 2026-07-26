@@ -37,6 +37,9 @@ else:
     except ImportError:
         HAS_KEYBOARD = False
 
+# Store old terminal settings for Unix cleanup (audit fix #3)
+_OLD_TERM_SETTINGS = None
+
 @dataclasses.dataclass
 class GpuStats:
     """GPU statistics dataclass."""
@@ -1982,6 +1985,11 @@ def main():
     print("Press Ctrl+C to exit.\n")
     loop_frame = 0  # Cycle counter for staggered refresh
 
+    # Set up Unix terminal for single-key input (audit fix #3)
+    if HAS_KEYBOARD and sys.platform != "win32":
+        _OLD_TERM_SETTINGS = termios.tcgetattr(sys.stdin)
+        tty.setcbreak(sys.stdin.fileno())
+
     while True:
         loop_start = time.time()
 
@@ -2012,7 +2020,12 @@ def main():
         valid = filter_valid(metrics)
 
         # Detect new metrics since last render
-        new_valid = valid[prev_count:]
+        # Handle server-side window rotation (audit fix #2)
+        if len(valid) < prev_count:
+            prev_count = 0
+            new_valid = valid
+        else:
+            new_valid = valid[prev_count:]
         current_model = valid[-1].get("model") if valid else None
 
         # Reset on model switch
@@ -2034,6 +2047,9 @@ def main():
 
         # Accumulate new metrics for the chart
         chart_metrics.extend(new_valid)
+        # Cap to prevent unbounded growth (audit fix #1)
+        if len(chart_metrics) > 2000:
+            chart_metrics = chart_metrics[-2000:]
 
         buckets = get_metrics_by_bucket(chart_metrics)
         identity = get_active_model_identity(valid, config_yaml)
@@ -2067,5 +2083,8 @@ if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
+        # Restore Unix terminal settings (audit fix #3)
+        if _OLD_TERM_SETTINGS is not None:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, _OLD_TERM_SETTINGS)
         sys.stdout.write("\n")
         sys.exit(0)
