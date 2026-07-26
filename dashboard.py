@@ -24,6 +24,7 @@ import sys
 import time
 import urllib.request
 from datetime import datetime
+from urllib.parse import urlparse
 
 # Cross-platform keyboard input
 if sys.platform == "win32":
@@ -579,8 +580,27 @@ def get_aux_port(config):
         return int(DEFAULT_AUX_PORT)
 
 
+def is_safe_host(url: str) -> bool:
+    """Return True only for http/https URLs with a valid hostname.
+    Blocks file://, gopher://, cloud metadata endpoints, etc."""
+    try:
+        parsed = urlparse(url.strip())
+        if parsed.scheme not in ("http", "https"):
+            return False
+        if not parsed.hostname:
+            return False
+        # Block cloud metadata / link-local targets
+        if parsed.hostname in ("169.254.169.254", "metadata.google.internal"):
+            return False
+        return True
+    except Exception:
+        return False
+
+
 def check_host(host):
     """Check if llama-swap API is reachable at the given host."""
+    if not is_safe_host(host):
+        return False
     try:
         url = f"{host}/api/performance"
         req = urllib.request.Request(url)
