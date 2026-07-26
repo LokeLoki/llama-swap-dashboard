@@ -1218,13 +1218,41 @@ def detect_local_servers(gpus=None):
             if port_match:
                 port = int(port_match.group(1))
 
+            # Parse --mmproj path from cmd
+            mmproj_path = ""
+            mmproj_match = re.search(r'--mmproj\s+"([^"]+\.gguf)"', cmd)
+            if not mmproj_match:
+                mmproj_match = re.search(r'--mmproj\s+(\S+\.gguf)', cmd)
+            if mmproj_match:
+                mmproj_path = mmproj_match.group(1)
+            mmproj_file_mb = 0
+            if mmproj_path:
+                try:
+                    mmproj_file_mb = os.path.getsize(mmproj_path) / (1024 * 1024)
+                except (OSError, TypeError):
+                    pass
+
+            # Parse --model-draft path from cmd
+            draft_path = ""
+            draft_match = re.search(r'--model-draft\s+"([^"]+\.gguf)"', cmd)
+            if not draft_match:
+                draft_match = re.search(r'--model-draft\s+(\S+\.gguf)', cmd)
+            if draft_match:
+                draft_path = draft_match.group(1)
+            draft_file_mb = 0
+            if draft_path:
+                try:
+                    draft_file_mb = os.path.getsize(draft_path) / (1024 * 1024)
+                except (OSError, TypeError):
+                    pass
+
             result_servers.append({
                 "model_id": os.path.basename(model_path) if model_path else f"llama-server:{port}",
                 "model_path": model_path,
                 "model_quant": model_quant or "unknown",
                 "model_file_mb": model_file_mb,
-                "mmproj_file_mb": 0,
-                "draft_file_mb": 0,
+                "mmproj_file_mb": mmproj_file_mb,
+                "draft_file_mb": draft_file_mb,
                 "max_context": max_context,
                 "cache_type": cache_type,
                 "cache_ram_mb": -1,
