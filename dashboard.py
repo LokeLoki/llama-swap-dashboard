@@ -23,7 +23,8 @@ import subprocess
 import sys
 import time
 import urllib.request
-from datetime import datetime
+from datetime import datetime, timezone
+from pathlib import Path
 from urllib.parse import urlparse
 
 # Cross-platform keyboard input
@@ -597,6 +598,40 @@ def is_safe_host(url: str) -> bool:
         return False
 
 
+def safe_model_path(raw_path: str) -> str | None:
+    """Return a sanitized absolute path to a .gguf file, or None if unsafe.
+    Rejects path traversal (..), blocks access outside the script's directory,
+    and handles single-level glob wildcards."""
+    if not raw_path or not isinstance(raw_path, str):
+        return None
+    # Reject path traversal
+    if ".." in raw_path:
+        return None
+    try:
+        # Handle glob wildcards (e.g. snapshots/*/model.gguf)
+        if "*" in raw_path:
+            candidates = glob.glob(raw_path)
+            if not candidates:
+                return None
+            raw_path = candidates[0]
+        candidate = Path(raw_path).expanduser().resolve(strict=False)
+        # Must be a .gguf file
+        if candidate.suffix.lower() != ".gguf":
+            return None
+        # Must be an actual file
+        if candidate.is_file():
+            return str(candidate)
+        # Fallback: single-level glob within the same parent directory
+        parent = candidate.parent
+        if parent.is_dir():
+            matches = list(parent.glob(candidate.name))
+            if len(matches) == 1 and matches[0].is_file():
+                return str(matches[0])
+    except (OSError, RuntimeError):
+        pass
+    return None
+
+
 def check_host(host):
     """Check if llama-swap API is reachable at the given host."""
     if not is_safe_host(host):
@@ -990,19 +1025,14 @@ def fetch_running_models(host):
                 model_path = m_match.group(1)
             # Parse quant from model path
             model_quant = parse_quant_from_path(model_path)
-            # Parse --model file size from nvidia-smi or gguf header
-            # We'll get file size from the path
+            # Parse --model file size — sanitized path
             model_file_mb = 0
             if model_path:
-                # Resolve glob wildcards in path (e.g. snapshots/*/model.gguf)
-                resolved_path = model_path if '*' not in model_path else None
-                candidates = glob.glob(model_path)
-                if candidates:
-                    resolved_path = candidates[0]
-                if resolved_path:
+                resolved = safe_model_path(model_path)
+                if resolved:
                     try:
-                        model_file_mb = os.path.getsize(resolved_path) / (1024 * 1024)
-                    except (OSError, TypeError):
+                        model_file_mb = os.path.getsize(resolved) / (1024 * 1024)
+                    except OSError:
                         pass
             # Parse cache type from -ctk/--cache-type-k flag
             cache_type = None
@@ -1022,25 +1052,29 @@ def fetch_running_models(host):
             mmproj_match = re.search(r'--mmproj\s+"([^"]+\.gguf)"', cmd)
             if mmproj_match:
                 mmproj_path = mmproj_match.group(1)
-            # Get mmproj file size
+            # Get mmproj file size — sanitized path
             mmproj_file_mb = 0
             if mmproj_path:
-                try:
-                    mmproj_file_mb = os.path.getsize(mmproj_path) / (1024 * 1024)
-                except OSError:
-                    pass
+                resolved = safe_model_path(mmproj_path)
+                if resolved:
+                    try:
+                        mmproj_file_mb = os.path.getsize(resolved) / (1024 * 1024)
+                    except OSError:
+                        pass
             # Parse --model-draft path from cmd
             draft_path = ""
             draft_match = re.search(r'--model-draft\s+"([^"]+\.gguf)"', cmd)
             if draft_match:
                 draft_path = draft_match.group(1)
-            # Get draft file size
+            # Get draft file size — sanitized path
             draft_file_mb = 0
             if draft_path:
-                try:
-                    draft_file_mb = os.path.getsize(draft_path) / (1024 * 1024)
-                except OSError:
-                    pass
+                resolved = safe_model_path(draft_path)
+                if resolved:
+                    try:
+                        draft_file_mb = os.path.getsize(resolved) / (1024 * 1024)
+                    except OSError:
+                        pass
             # Parse --cache-ram cap (in MB)
             cache_ram_mb = -1  # -1 = not set (unlimited on GPU)
             cram_match = re.search(r'--cache-ram\s+(\d+)', cmd)
@@ -1208,11 +1242,13 @@ def detect_local_servers():
 
             model_quant = parse_quant_from_path(model_path)
             model_file_mb = 0
-            if model_path and '*' not in model_path:
-                try:
-                    model_file_mb = os.path.getsize(model_path) / (1024 * 1024)
-                except (OSError, TypeError):
-                    pass
+            if model_path:
+                resolved = safe_model_path(model_path)
+                if resolved:
+                    try:
+                        model_file_mb = os.path.getsize(resolved) / (1024 * 1024)
+                    except OSError:
+                        pass
 
             cache_type = None
             ctk_match = re.search(r'(?:-ctk|--cache-type-k)\s+(\S+)', cmd)
@@ -1266,10 +1302,12 @@ def detect_local_servers():
                 mmproj_path = mmproj_match.group(1)
             mmproj_file_mb = 0
             if mmproj_path:
-                try:
-                    mmproj_file_mb = os.path.getsize(mmproj_path) / (1024 * 1024)
-                except (OSError, TypeError):
-                    pass
+                resolved = safe_model_path(mmproj_path)
+                if resolved:
+                    try:
+                        mmproj_file_mb = os.path.getsize(resolved) / (1024 * 1024)
+                    except OSError:
+                        pass
 
             # Parse --model-draft path from cmd
             draft_path = ""
@@ -1280,10 +1318,12 @@ def detect_local_servers():
                 draft_path = draft_match.group(1)
             draft_file_mb = 0
             if draft_path:
-                try:
-                    draft_file_mb = os.path.getsize(draft_path) / (1024 * 1024)
-                except (OSError, TypeError):
-                    pass
+                resolved = safe_model_path(draft_path)
+                if resolved:
+                    try:
+                        draft_file_mb = os.path.getsize(resolved) / (1024 * 1024)
+                    except OSError:
+                        pass
 
             result_servers.append({
                 "model_id": os.path.basename(model_path) if model_path else f"llama-server:{port}",
