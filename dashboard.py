@@ -1033,12 +1033,16 @@ def fetch_running_models(host):
             batch_size, ubatch_size = _parse_batch_flags(cmd)
             # Parse -ngl / --n-gpu-layers / --gpu-layers (partial offload)
             ngl = 999  # default: full offload
-            ngl_match = re.search(r'(?:-ngl|--n-gpu-layers|--gpu-layers)\s+(-?\d+)', cmd)
+            ngl_match = re.search(r'(?:-ngl|--n-gpu-layers|--gpu-layers)\s+(\S+)', cmd)
             if ngl_match:
-                try:
-                    ngl = int(ngl_match.group(1))
-                except ValueError:
-                    pass
+                ngl_val = ngl_match.group(1)
+                if ngl_val in ('auto', 'all'):
+                    ngl = 999  # treat as full offload
+                else:
+                    try:
+                        ngl = int(ngl_val)
+                    except ValueError:
+                        pass
                 if ngl == -1:
                     ngl = 999  # treat -1 as "all layers on GPU"
             # Parse -ts / --tensor-split (multi-GPU proportional split)
@@ -1091,6 +1095,115 @@ def fetch_running_models(host):
         return running
     except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
         return None  # llama-swap /running unavailable
+
+
+def detect_local_servers(gpus=None):
+    """Fallback: detect running llama-server processes via system process list.
+
+    Scans for llama-server / llama-server.exe processes, parses their command
+    lines with the same regexes used by fetch_running_models.
+
+    Returns a list of running-model dicts compatible with the /running endpoint,
+    or None if no servers found."""
+    try:
+        result = subprocess.run(
+            ["ps", "aux"], capture_output=True, text=True, timeout=5
+        )
+        if result.returncode != 0:
+            return None
+
+        servers = []
+        for line in result.stdout.splitlines()[1:]:  # skip header
+            parts = line.split(None, 10)
+            if len(parts) < 11:
+                continue
+            cmd_full = parts[10]
+            # Match llama-server or llama-server.exe
+            if not re.search(r'llama[-_]?server', cmd_full):
+                continue
+
+            cmd = cmd_full
+            model_path = ""
+            m_match = re.search(r'(?:-m|--model)\s+"([^"]+\.gguf)"', cmd)
+            if not m_match:
+                m_match = re.search(r'(?:-m|--model)\s+(\S+\.gguf)', cmd)
+            if m_match:
+                model_path = m_match.group(1)
+
+            model_quant = parse_quant_from_path(model_path)
+            model_file_mb = 0
+            if model_path and '*' not in model_path:
+                try:
+                    model_file_mb = os.path.getsize(model_path) / (1024 * 1024)
+                except (OSError, TypeError):
+                    pass
+
+            cache_type = None
+            ctk_match = re.search(r'(?:-ctk|--cache-type-k)\s+(\S+)', cmd)
+            if ctk_match:
+                cache_type = ctk_match.group(1).lower()
+
+            max_context = 0
+            ctx_match = re.search(r'\s-c\s+(\d+)', cmd)
+            if ctx_match:
+                try:
+                    max_context = int(ctx_match.group(1))
+                except ValueError:
+                    pass
+
+            batch_size, ubatch_size = _parse_batch_flags(cmd)
+
+            ngl = 999
+            ngl_match = re.search(r'(?:-ngl|--n-gpu-layers|--gpu-layers)\s+(\S+)', cmd)
+            if ngl_match:
+                ngl_val = ngl_match.group(1)
+                if ngl_val in ('auto', 'all'):
+                    ngl = 999
+                else:
+                    try:
+                        ngl = int(ngl_val)
+                    except ValueError:
+                        pass
+                if ngl == -1:
+                    ngl = 999
+
+            split_pct = None
+            ts_match = re.search(r'(?:-ts|--tensor-split)\s+([\d.]+(?:,[\d.]+)*)', cmd)
+            if ts_match:
+                raw = ts_match.group(1).split(',')
+                split_ratios = [float(v) for v in raw]
+                total = sum(split_ratios)
+                if total > 0:
+                    split_pct = [round(v / total * 100) for v in split_ratios]
+
+            port = 8080
+            port_match = re.search(r'(?:--port|-p)\s+(\d+)', cmd)
+            if port_match:
+                port = int(port_match.group(1))
+
+            servers.append({
+                "model_id": os.path.basename(model_path) if model_path else f"llama-server:{port}",
+                "model_path": model_path,
+                "model_quant": model_quant or "unknown",
+                "model_file_mb": model_file_mb,
+                "mmproj_file_mb": 0,
+                "draft_file_mb": 0,
+                "max_context": max_context,
+                "cache_type": cache_type,
+                "cache_ram_mb": -1,
+                "cmd": cmd,
+                "host": f"http://localhost:{port}",
+                "parallel": 1,
+                "batch_size": batch_size,
+                "ubatch_size": ubatch_size,
+                "ngl": ngl,
+                "split_pct": split_pct,
+                "proxy": None,
+            })
+
+        return servers if servers else None
+    except (subprocess.SubprocessError, OSError, TimeoutError):
+        return None
 
 
 def short_model_name(model_path_or_id):
@@ -1304,6 +1417,22 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     # Get architecture
     arch = find_model_arch(active["model_path"], active["model_quant"])
     if not arch:
+        # Unknown architecture — fall back to raw nvidia-smi VRAM estimate
+        # Still useful: show GPU bars, live decode speed, model label
+        # Hide Static/Runtime breakdown (set weight_mb from smi delta)
+        if gpus:
+            weight_mb_smi = sum(g.mem_used_mb for g in gpus if g.gpu_util_pct >= 5)
+            if weight_mb_smi > 0:
+                return MainModelVram(
+                    total_mb=weight_mb_smi,
+                    weight_mb=weight_mb_smi,
+                    mmproj_mb=0.0,
+                    draft_mb=0.0,
+                    cache_mb=0.0,
+                    cache_type="unknown",
+                    overhead_mb=0.0,
+                    split_pct=active.get("split_pct"),
+                )
         return None
     layers, kv_heads, head_dim = arch
     # DeepSeek R1/V3, Kimi K2, Mistral Large 3 use MLA (Multi-head Latent Attention) — compressed KV cache.
@@ -2005,6 +2134,13 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     sys_lines, decode_tps = render_main_model_decode(valid_metrics, sys_info, main_vram_info)
     lines.extend(sys_lines)
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
+    # First-run hint: no server detected
+    if not running_models:
+        lines.append(f"  {DIM}No llama-server or llama-swap detected.{RESET}")
+        lines.append(f"  {DIM}Start one with something like:{RESET}")
+        lines.append(f"  {DIM}  llama-server -m your-model.gguf -ngl 99 --port 8080{RESET}")
+        lines.append(f"  {DIM}Then re-run this dashboard.{RESET}")
+        lines.append(f"  {DIM}{'─' * 56}{RESET}")
     # Build model label from actual model path (not config key)
     actual_model_path = None
     if running_models:
@@ -2170,6 +2306,9 @@ def main():
             # Running models — every REFRESH_RUNNING cycles
             if loop_frame % REFRESH_RUNNING == 0:
                 running_models = fetch_running_models(host)
+                # Fallback: if /running endpoint unavailable, detect local servers
+                if running_models is None:
+                    running_models = detect_local_servers(gpus)
     
             # Ollama aux — every REFRESH_OLLAMA cycles
             if loop_frame % REFRESH_OLLAMA == 0:
