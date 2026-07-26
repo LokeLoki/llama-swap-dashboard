@@ -1986,105 +1986,109 @@ def main():
     loop_frame = 0  # Cycle counter for staggered refresh
 
     # Set up Unix terminal for single-key input (audit fix #3)
+    global _OLD_TERM_SETTINGS
     if HAS_KEYBOARD and sys.platform != "win32":
         _OLD_TERM_SETTINGS = termios.tcgetattr(sys.stdin)
         tty.setcbreak(sys.stdin.fileno())
 
-    while True:
-        loop_start = time.time()
-
-        # Staggered refresh — only poll each source every N cycles
-        loop_frame += 1
-
-        # GPU stats — every REFRESH_GPU cycles (local, cheap)
-        if loop_frame % REFRESH_GPU == 0:
-            gpus = get_gpu_stats(gpu_names)
-
-        # Network metrics — every REFRESH_METRICS cycles
-        if loop_frame % REFRESH_METRICS == 0:
-            sys_info = get_llama_swap_stats(api_url)
-            metrics = fetch_metrics(metrics_url)
-
-        # Running models — every REFRESH_RUNNING cycles
-        if loop_frame % REFRESH_RUNNING == 0:
-            running_models = fetch_running_models(host)
-
-        # Ollama aux — every REFRESH_OLLAMA cycles
-        if loop_frame % REFRESH_OLLAMA == 0:
-            aux_info = get_auxiliary_model(aux_port)
-
-        # Ollama active check — every REFRESH_OLLAMA_ACTIVE cycles (local)
-        if loop_frame % REFRESH_OLLAMA_ACTIVE == 0:
-            ollama_active = get_ollama_active()
-
-        valid = filter_valid(metrics)
-
-        # Detect new metrics since last render
-        # Handle server-side window rotation (audit fix #2)
-        if len(valid) < prev_count:
-            prev_count = 0
-            new_valid = valid
-        else:
-            new_valid = valid[prev_count:]
-        current_model = valid[-1].get("model") if valid else None
-
-        # Reset on model switch
-        if current_model != prev_model:
-            session_totals = {"in": 0, "out": 0, "reqs": 0, "cache": 0}
-            prev_count = 0
-            new_valid = valid
-            chart_metrics = []  # Reset chart on model switch too
-
-        # Incrementally update session totals
-        for m in new_valid:
-            session_totals["in"] += m.get("tokens", {}).get("input_tokens", 0)
-            session_totals["out"] += m.get("tokens", {}).get("output_tokens", 0)
-            session_totals["cache"] += m.get("tokens", {}).get("cache_tokens", 0)
-            session_totals["reqs"] += 1
-
-        prev_count = len(valid)
-        prev_model = current_model
-
-        # Accumulate new metrics for the chart
-        chart_metrics.extend(new_valid)
-        # Cap to prevent unbounded growth (audit fix #1)
-        if len(chart_metrics) > 2000:
-            chart_metrics = chart_metrics[-2000:]
-
-        buckets = get_metrics_by_bucket(chart_metrics)
-        identity = get_active_model_identity(valid, config_yaml)
-        render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
-
-        # Increment spinner frame for next cycle
-        spinner_frame += 1
-
-        # Fixed refresh interval — responsive sleep loop for instant key feedback
-        elapsed = time.time() - loop_start
-        sleep_time = max(0.1, refresh - elapsed)
-        wait_end = time.time() + sleep_time
-        while time.time() < wait_end:
-            key = _read_key()
-            if key:
-                if key in (b"+", b"=", b"'"):
-                    num_prompts = min(10, num_prompts + 1)
-                elif key in (b"-", b"_"):
-                    num_prompts = max(1, num_prompts - 1)
-                elif key in (b"\x12", b"c", b"r"):
-                    chart_metrics = []
-                # Re-render instantly with cached data
-                buckets = get_metrics_by_bucket(chart_metrics)
+    try:
+        while True:
+            loop_start = time.time()
+    
+            # Staggered refresh — only poll each source every N cycles
+            loop_frame += 1
+    
+            # GPU stats — every REFRESH_GPU cycles (local, cheap)
+            if loop_frame % REFRESH_GPU == 0:
+                gpus = get_gpu_stats(gpu_names)
+    
+            # Network metrics — every REFRESH_METRICS cycles
+            if loop_frame % REFRESH_METRICS == 0:
+                sys_info = get_llama_swap_stats(api_url)
+                metrics = fetch_metrics(metrics_url)
+    
+            # Running models — every REFRESH_RUNNING cycles
+            if loop_frame % REFRESH_RUNNING == 0:
+                running_models = fetch_running_models(host)
+    
+            # Ollama aux — every REFRESH_OLLAMA cycles
+            if loop_frame % REFRESH_OLLAMA == 0:
+                aux_info = get_auxiliary_model(aux_port)
+    
+            # Ollama active check — every REFRESH_OLLAMA_ACTIVE cycles (local)
+            if loop_frame % REFRESH_OLLAMA_ACTIVE == 0:
+                ollama_active = get_ollama_active()
+    
+            valid = filter_valid(metrics)
+    
+            # Detect new metrics since last render
+            # Handle server-side window rotation (audit fix #2)
+            if len(valid) < prev_count:
+                prev_count = 0
+                new_valid = valid
+            else:
+                new_valid = valid[prev_count:]
+            current_model = valid[-1].get("model") if valid else None
+    
+            # Reset on model switch
+            if current_model != prev_model:
+                session_totals = {"in": 0, "out": 0, "reqs": 0, "cache": 0}
+                prev_count = 0
+                new_valid = valid
+                chart_metrics = []  # Reset chart on model switch too
+    
+            # Incrementally update session totals
+            for m in new_valid:
+                session_totals["in"] += m.get("tokens", {}).get("input_tokens", 0)
+                session_totals["out"] += m.get("tokens", {}).get("output_tokens", 0)
+                session_totals["cache"] += m.get("tokens", {}).get("cache_tokens", 0)
+                session_totals["reqs"] += 1
+    
+            prev_count = len(valid)
+            prev_model = current_model
+    
+            # Accumulate new metrics for the chart
+            chart_metrics.extend(new_valid)
+            # Cap to prevent unbounded growth (audit fix #1)
+            if len(chart_metrics) > 2000:
+                chart_metrics = chart_metrics[-2000:]
+    
+            buckets = get_metrics_by_bucket(chart_metrics)
+            identity = get_active_model_identity(valid, config_yaml)
+            render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
+    
+            # Increment spinner frame for next cycle
+            spinner_frame += 1
+    
+            # Fixed refresh interval — responsive sleep loop for instant key feedback
+            elapsed = time.time() - loop_start
+            sleep_time = max(0.1, refresh - elapsed)
+            wait_end = time.time() + sleep_time
+            while time.time() < wait_end:
+                key = _read_key()
+                if key:
+                    if key in (b"+", b"=", b"'"):
+                        num_prompts = min(10, num_prompts + 1)
+                    elif key in (b"-", b"_"):
+                        num_prompts = max(1, num_prompts - 1)
+                    elif key in (b"\x12", b"c", b"r"):
+                        chart_metrics = []
+                    # Re-render instantly with cached data
+                    buckets = get_metrics_by_bucket(chart_metrics)
                 identity = get_active_model_identity(valid, config_yaml)
                 render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
                 spinner_frame += 1
             time.sleep(0.05)
+
+    finally:
+        # Restore Unix terminal settings (audit fix #3)
+        if _OLD_TERM_SETTINGS is not None:
+            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, _OLD_TERM_SETTINGS)
 
 
 if __name__ == "__main__":
     try:
         main()
     except KeyboardInterrupt:
-        # Restore Unix terminal settings (audit fix #3)
-        if _OLD_TERM_SETTINGS is not None:
-            termios.tcsetattr(sys.stdin, termios.TCSADRAIN, _OLD_TERM_SETTINGS)
         sys.stdout.write("\n")
         sys.exit(0)
