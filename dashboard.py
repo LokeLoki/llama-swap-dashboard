@@ -2003,7 +2003,9 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         overhead_gb = main_vram_info.overhead_mb / 1024
         if main_vram_info.offload_ratio < 1.0:
             gpu_l = int(main_vram_info.offload_ratio * main_vram_info.layers)
-            offload_note = f" {DIM}(ngl {gpu_l}/{main_vram_info.layers}){RESET}"
+            cpu_weight_mb = main_vram_info.weight_mb * (1.0 / main_vram_info.offload_ratio - 1.0)
+            cpu_weight_gb = cpu_weight_mb / 1024
+            offload_note = f" {DIM}(ngl {gpu_l}/{main_vram_info.layers} · ~{cpu_weight_gb:.1f} GB on CPU){RESET}"
         else:
             offload_note = ""
         lines.append(
