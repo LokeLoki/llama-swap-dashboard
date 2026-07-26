@@ -201,10 +201,6 @@ MODEL_ARCHITECTURES = {
     # Laguna family (GQA)
     "laguna-s-2.1":      (48, 8, 128),
     "laguna-xs-2.1":     (40, 8, 128),
-    # GLM 5.2 (MHA)
-    "glm-5.2":           (78, 64, 64),
-    # Kimi K2 (MLA — follows DeepSeek pattern)
-    "kimi-k2":           (61, 128, 128),
     # Mistral family
     "mistral-7b":        (32, 8, 128),
     "mixtral-8x7b":      (32, 8, 128),
@@ -213,9 +209,8 @@ MODEL_ARCHITECTURES = {
     "mistral-nemo-2":    (40, 8, 128),
     # Cohere
     "command-aura":      (72, 8, 128),
-    # Nemotron-H / Nemotron-5 (hybrid Mamba + Attention)
+    # Nemotron-H / Nemotron-5 (hybrid Mamba + Attention; 56B and 8B variants)
     # Full layer count is stored; attention-only count is applied later via NEMOTRON_ATTENTION_LAYERS
-    "nemotron-5-70b":    (118, 8, 128),
     "nemotron-5-56b":    (118, 8, 128),
     "nemotron-h-56b":    (118, 8, 128),
     "nemotron-5-15b":    (52, 8, 128),    # placeholder scale
@@ -484,7 +479,6 @@ QWEN_HYBRID_LAYERS = {
 # Mamba-2 layers use fixed-size SSM state (no sequence-length KV).
 # Source: Nemotron-H paper — ~8% of layers are attention.
 NEMOTRON_ATTENTION_LAYERS = {
-    "nemotron-5-70b": 10,   # ~8% of 118
     "nemotron-5-56b": 10,
     "nemotron-h-56b": 10,
     "nemotron-5-15b": 4,    # placeholder
@@ -1543,9 +1537,15 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     # Mistral Large 3 note: Uses MLA, same family as DeepSeek V3. KV is a low-rank latent,
     # not full head_dim x kv_heads per layer.
     path_lower = active["model_path"].lower()
-    is_mla = ("deepseek" in path_lower or "kimi" in path_lower or
-              "mistral-large-3" in path_lower or "mistrallarge3" in path_lower or
-              "mistral-large3" in path_lower) and "distill" not in path_lower
+    # MLA (Multi-head Latent Attention) detection — explicit family names.
+    # MLA models use compressed latent KV cache; standard formula wildly overestimates.
+    # Distill models (e.g. DeepSeek-R1-Distill-Qwen) are standard GQA, not MLA.
+    is_mla = any(k in path_lower for k in (
+        "deepseek-v3", "deepseek-r1", "deepseek-v3.2", "deepseek-v4",
+        "kimi-k2", "kimi-k2.5",
+        "mistral-large-3", "mistrallarge3", "mistral-large3",
+        "glm-5", "glm5",
+    )) and "distill" not in path_lower
     iswa_window = None
     for key, window in GEMMA_ISWA_WINDOW.items():
         clean_key = re.sub(r'[-._]', '', key.lower())
