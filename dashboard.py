@@ -478,7 +478,6 @@ RED = "\033[91m"
 DIM = "\033[90m"
 WHITE = "\033[97m"
 SOFT_WHITE = "\033[37m"
-UNDERLINE = "\033[4m"
 
 
 # ── Backend detection ──────────────────────────────────
@@ -1885,7 +1884,7 @@ def _format_metric_line(label, vram_str, active=True, is_aux=False, spinner_fram
     """
     spinner = _inference_spinner(spinner_frame, active)
     if vram_str:
-        return f"  {spinner}  {BOLD}{label}{RESET} {BOLD}{UNDERLINE}{SOFT_WHITE}{vram_str}{RESET} {DIM}(total){RESET}"
+        return f"  {spinner}  {BOLD}{label}{RESET} {SOFT_WHITE}~{BOLD}{vram_str}{RESET} {DIM}(total){RESET}"
     return f"  {spinner}  {BOLD}{label}{RESET}"
 
 
