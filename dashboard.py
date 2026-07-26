@@ -94,6 +94,7 @@ class MainModelVram:
     flash_attn_mb: float = 0.0
     tensor_sync_mb: float = 0.0
     overhead_mb: float = 0.0
+    split_pct: list = None
 
 @dataclasses.dataclass
 class ModelIdentity:
@@ -469,7 +470,7 @@ RESET = "\033[0m"
 BOLD = "\033[1m"
 ITALIC = "\033[3m"
 CYAN = "\033[96m"
-LIGHT_BLUE = "\033[94m"
+DIM_CYAN = "\033[2;36m"
 GREEN = "\033[92m"
 LIGHT_GREEN = "\033[1;92m"
 ORANGE = "\033[33m"
@@ -1452,6 +1453,7 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         flash_attn_mb=overhead["flash_attn_mb"],
         tensor_sync_mb=overhead["tensor_sync_mb"],
         overhead_mb=overhead["total_mb"],
+        split_pct=active.get("split_pct"),
     )
 
 
@@ -1895,12 +1897,12 @@ def _format_metric_line(label, vram_str, active=True, is_aux=False, spinner_fram
     """
     spinner = _inference_spinner(spinner_frame, active)
     if vram_str:
-        return f"  {spinner}  {BOLD}{label}{RESET} {SOFT_WHITE}~{BOLD}{vram_str}{RESET} {DIM}(total){RESET}"
+        return f"  {spinner}  {BOLD}{label}{RESET} {DIM_CYAN}~{DIM_CYAN}{BOLD}{vram_str}{RESET} {DIM}(total){RESET}"
     return f"  {spinner}  {BOLD}{label}{RESET}"
 
 
 
-def render_main_model_decode(valid_metrics, sys_info):
+def render_main_model_decode(valid_metrics, sys_info, main_vram_info=None):
     """Render system RAM and return latest decode tps from valid metrics."""
     lines = []
 
@@ -1913,8 +1915,15 @@ def render_main_model_decode(valid_metrics, sys_info):
         sys_mem_total = sys_info.mem_total_mb
         sys_mem_pct = (sys_mem_used / sys_mem_total * 100) if sys_mem_total else 0
         sys_bar = util_bar(sys_mem_pct, 16)
-        sys_mem_str = f"{sys_mem_used / 1024:.1f} / {sys_mem_total / 1024:.0f} GB ({sys_mem_pct:.0f}%)"
-        lines.append(f"  {BOLD}System RAM{RESET}: {sys_bar} {sys_mem_str}")
+        sys_mem_str = f"{sys_mem_used / 1024:.1f} / {sys_mem_total / 1024:.0f} GB"
+        # Show CPU-offloaded model portion on System RAM line
+        offload_label = ""
+        if main_vram_info and main_vram_info.offload_ratio < 1.0:
+            cpu_mb = main_vram_info.weight_mb * (1.0 - main_vram_info.offload_ratio)
+            cpu_mb += main_vram_info.cache_mb * (1.0 - main_vram_info.offload_ratio)
+            cpu_gb = cpu_mb / 1024
+            offload_label = f" {DIM_CYAN}{cpu_gb:.1f} GB{RESET}"
+        lines.append(f"  {BOLD}System RAM{RESET}: {sys_bar} {sys_mem_str}{offload_label}")
 
     return lines, decode_tps
 
@@ -1937,10 +1946,19 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         sys.stdout.flush()
         return
 
+    # Calculate main model VRAM before GPU loop (needed for split_pct overhead)
+    main_vram_info = get_main_model_vram(running_models, valid_metrics, gpus) if running_models else None
+    main_vram_str = None
+    if main_vram_info:
+        main_vram_str = f"{main_vram_info.total_mb / 1024:.1f} GB"
+    else:
+        main_vram_mb = sum(gpu.mem_used_mb for gpu in gpus if gpu.gpu_util_pct >= 5) if gpus else 0
+        main_vram_str = f"{main_vram_mb / 1024:.1f} GB" if main_vram_mb > 0 else None
+
     # Multi-GPU tensor split percentages (from active model's -ts flag)
     split_pct = None
-    if running_models and running_models[0].get("split_pct"):
-        split_pct = running_models[0]["split_pct"]
+    if main_vram_info and main_vram_info.split_pct:
+        split_pct = main_vram_info.split_pct
 
     for i, gpu in enumerate(gpus):
         temp = gpu.temp_c
@@ -1962,16 +1980,18 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         util_bar_str = util_bar(util, 14)
         mem_str = f"{mem_used / 1024:.1f} / {mem_total / 1024:.0f} GB"
 
-        # Tensor split percentage for this GPU
-        split_label = ""
-        if split_pct and i < len(split_pct):
+        # Per-GPU runtime overhead appended to VRAM line
+        runtime_label = ""
+        if split_pct and main_vram_info and i < len(split_pct):
             pct = split_pct[i]
             if pct > 0:
-                split_label = f" {LIGHT_BLUE}[{pct}%]{RESET}"
+                gpu_overhead_mb = main_vram_info.overhead_mb * (pct / 100)
+                gpu_overhead_gb = gpu_overhead_mb / 1024
+                runtime_label = f" {DIM_CYAN}{gpu_overhead_gb:.1f} GB{RESET}"
 
-        lines.append(f"  {BOLD}{WHITE}[GPU {gpu.id}] {gpu.name}{split_label}{RESET}")
+        lines.append(f"  {BOLD}{WHITE}[GPU {gpu.id}] {gpu.name}{RESET}")
         lines.append(f"  {status}  {DIM}{color_temp(temp)}{temp}°C{RESET}")
-        lines.append(f"  {DIM}VRAM:{RESET} {vram_bar} {mem_str}")
+        lines.append(f"  {DIM}VRAM:{RESET} {vram_bar} {mem_str}{runtime_label}")
         lines.append(f"  {DIM}UTIL:{RESET} {status_color}{util_bar_str}{RESET} {util}%")
         lines.append(f"  {DIM}PWR:{RESET}  {power:.0f}W  {DIM}|{RESET} {DIM}FAN:{RESET} {fan}%{DIM}  | Refresh: {refresh_interval}s{RESET}")
 
@@ -1982,16 +2002,9 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     lines.append("")
 
     # System memory + model decode speeds
-    sys_lines, decode_tps = render_main_model_decode(valid_metrics, sys_info)
+    sys_lines, decode_tps = render_main_model_decode(valid_metrics, sys_info, main_vram_info)
     lines.extend(sys_lines)
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
-    # Calculate main model VRAM: weights + KV cache (additive estimate)
-    main_vram_info = get_main_model_vram(running_models, valid_metrics, gpus) if running_models else None
-    if main_vram_info:
-        main_vram_str = f"{main_vram_info.total_mb / 1024:.1f} GB"
-    else:
-        main_vram_mb = sum(gpu.mem_used_mb for gpu in gpus if gpu.gpu_util_pct >= 5) if gpus else 0
-        main_vram_str = f"{main_vram_mb / 1024:.1f} GB" if main_vram_mb > 0 else None
     # Build model label from actual model path (not config key)
     actual_model_path = None
     if running_models:
@@ -2035,12 +2048,12 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         else:
             offload_line = ""
         lines.append(
-            f"  {DIM}  ├─ Static: {RESET}{PRIMARY_LIGHT}{static_gb:.1f}{RESET}{WHITE} GB{RESET} {DIM}(weights + KV {cache_label}){RESET}"
+            f"  {DIM}  ├─ Static: {RESET}{DIM_CYAN}{static_gb:.1f}{RESET}{WHITE} GB{RESET} {DIM}(weights + KV {cache_label}){RESET}"
         )
         if offload_line:
             lines.append(offload_line)
         lines.append(
-            f"  {DIM}  └─ Runtime: {RESET}{ORANGE}{overhead_gb:.1f}{RESET}{WHITE} GB{RESET} {DIM}"
+            f"  {DIM}  └─ Runtime: {RESET}{DIM_CYAN}{overhead_gb:.1f}{RESET}{WHITE} GB{RESET} {DIM}"
             f"(ctx:{main_vram_info.cuda_context_mb:.0f} "
             f"comp:{main_vram_info.compute_buffer_mb:.0f} "
             f"fa:{main_vram_info.flash_attn_mb:.0f} "
