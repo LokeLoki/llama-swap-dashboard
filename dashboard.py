@@ -1453,19 +1453,14 @@ def _inference_spinner(spinner_frame, active):
     return f"{PRIMARY}{spinner[spinner_frame % 4]}{RESET}" if active else f"{DIM}◉{RESET}"
 
 
-def _format_metric_line(label, vram_str, is_aux=False, spinner_frame=0, aux_active=False):
-    """Format a single metric line (model label + optional VRAM).
-    Main model: just label + vram, no decode values.
-    Aux model: label + vram + spinner indicator.
+def _format_metric_line(label, vram_str, active=True, is_aux=False, spinner_frame=0):
+    """Format a single metric line with left-aligned spinner.
+    Both main model and aux get a spinner on the same line.
     """
+    spinner = _inference_spinner(spinner_frame, active)
     if vram_str:
-        prefix = f"{BOLD}{label}{RESET} {SOFT_WHITE}{vram_str}{RESET}"
-    else:
-        prefix = f"{BOLD}{label}{RESET}"
-    if is_aux:
-        spinner = _inference_spinner(spinner_frame, aux_active)
-        return f"  {prefix}  {spinner}"
-    return f"  {prefix}"
+        return f"  {spinner}  {BOLD}{label}{RESET} {SOFT_WHITE}{vram_str}{RESET}"
+    return f"  {spinner}  {BOLD}{label}{RESET}"
 
 
 
@@ -1563,10 +1558,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         model_label = f"— ({host.split(':')[-1] if ':' in host else '8080'})"
     # Inference state
     main_state = get_inference_state(valid_metrics, gpus) if valid_metrics else None
-    lines.append(_format_metric_line(model_label, main_vram_str))
-    # Inference activity spinner (above aux)
-    infer_active = decode_tps > 0
-    lines.append(f"  {_inference_spinner(spinner_frame, infer_active)}  {DIM}decode:{RESET} {PRIMARY_LIGHT}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET}")
+    lines.append(_format_metric_line(model_label, main_vram_str, active=decode_tps > 0, spinner_frame=spinner_frame))
     if aux_info:
         aux_name = aux_info.name
         aux_short = aux_name.split(":")[0]
@@ -1575,9 +1567,9 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         aux_vram_str = f"{aux_total_mb / 1024:.1f} GB"
         aux_state = get_aux_state(aux_info, aux_port, ollama_active)
         aux_active = ollama_active
-        lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", aux_vram_str, is_aux=True, spinner_frame=spinner_frame, aux_active=aux_active))
+        lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", aux_vram_str, active=aux_active, is_aux=True, spinner_frame=spinner_frame))
     else:
-        lines.append(f"  {BOLD}Ollama Aux ({aux_port}){RESET}  {DIM}offline{RESET}")
+        lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", None, active=False, is_aux=True, spinner_frame=spinner_frame))
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
     lines.append("")
 
