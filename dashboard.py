@@ -215,6 +215,16 @@ MODEL_ARCHITECTURES = {
     "mistral-nemo-2":    (40, 8, 128),
     # Cohere
     "command-aura":      (72, 8, 128),
+    # Nemotron-H / Nemotron-5 (hybrid Mamba + Attention)
+    # Full layer count is stored; attention-only count is applied later via NEMOTRON_ATTENTION_LAYERS
+    "nemotron-5-70b":    (118, 8, 128),
+    "nemotron-5-56b":    (118, 8, 128),
+    "nemotron-h-56b":    (118, 8, 128),
+    "nemotron-5-15b":    (52, 8, 128),    # placeholder scale
+    "nemotron-h-8b":     (52, 8, 128),
+    # Llama 4 — full layers hold KV (iRoPE changes attention mask, not which layers store cache)
+    "llama4-scout":      (48, 8, 128),    # update when exact config is confirmed
+    "llama4-maverick":   (80, 8, 128),    # update when exact config is confirmed
     # Llama 3.2 / 3.3
     "llama3.3-70b":      (80, 8, 128),
     "llama3.3-8b":       (32, 8, 128),
@@ -439,6 +449,17 @@ QWEN_HYBRID_LAYERS = {
     "qwen3.5-397b-a17b":  18,   # 72 total → 18 GatedAttn
     # Bonsai 27B (same Qwen3.6-27B architecture)
     "bonsai":        16,
+}
+
+# Nemotron-H / Nemotron-5: only the attention layers hold a growing KV cache.
+# Mamba-2 layers use fixed-size SSM state (no sequence-length KV).
+# Source: Nemotron-H paper — ~8% of layers are attention.
+NEMOTRON_ATTENTION_LAYERS = {
+    "nemotron-5-70b": 10,   # ~8% of 118
+    "nemotron-5-56b": 10,
+    "nemotron-h-56b": 10,
+    "nemotron-5-15b": 4,    # placeholder
+    "nemotron-h-8b":  4,
 }
 
 RESET = "\033[0m"
@@ -1259,11 +1280,14 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     if not arch:
         return None
     layers, kv_heads, head_dim = arch
-    # DeepSeek R1/V3 use MLA (Multi-head Latent Attention) — compressed KV cache.
+    # DeepSeek R1/V3, Kimi K2, Mistral Large 3 use MLA (Multi-head Latent Attention) — compressed KV cache.
     # Standard formula wildly overestimates. Use flat ~70 KB/token instead.
-    is_mla = ("deepseek" in active["model_path"].lower() or "kimi" in active["model_path"].lower()) and "distill" not in active["model_path"].lower()
-    # Gemma iSWA: find matching window size from MODEL_ARCHITECTURES keys
+    # Mistral Large 3 note: Uses MLA, same family as DeepSeek V3. KV is a low-rank latent,
+    # not full head_dim x kv_heads per layer.
     path_lower = active["model_path"].lower()
+    is_mla = ("deepseek" in path_lower or "kimi" in path_lower or
+              "mistral-large-3" in path_lower or "mistrallarge3" in path_lower or
+              "mistral-large3" in path_lower) and "distill" not in path_lower
     iswa_window = None
     for key, window in GEMMA_ISWA_WINDOW.items():
         clean_key = re.sub(r'[-._]', '', key.lower())
@@ -1278,6 +1302,15 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         if clean_key in clean_path:
             effective_layers = el
             break
+    # Nemotron-H / Nemotron-5: only attention layers keep KV
+    if effective_layers is None:
+        for key, el in NEMOTRON_ATTENTION_LAYERS.items():
+            clean_key = re.sub(r'[-._]', '', key.lower())
+            if clean_key in clean_path:
+                effective_layers = el
+                break
+    # Llama 4: full layers (no reduction) — iRoPE/chunked attention does not remove KV from layers.
+    # Mistral Large 3: handled earlier by MLA branch, never reaches here.
     # Gemma 4: global layers reuse keys as values → 50% KV reduction on global cache
     gemma4_kv = iswa_window is not None and "gemma4" in path_lower
     # Get weights size
@@ -1335,10 +1368,16 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     # Static payload: weights + mmproj + draft + KV cache
     static_mb = weight_mb + mmproj_mb + draft_mb + cache_mb + draft_cache_mb
     # DeltaNet / hybrid attn: fixed recurrent state on linear layers (~300 MB)
-    # Scales with model size and number of DeltaNet layers
+    # Scales with model size and number of non-KV layers
     if effective_layers is not None:
-        dnet_layers = layers - effective_layers
-        static_mb += dnet_layers * 4.5  # ~4.5 MB per DeltaNet layer (recurrent state)
+        non_kv_layers = max(0, layers - effective_layers)
+
+        if "nemotron" in path_lower:
+            # Mamba-2 SSM state is larger than DeltaNet on average
+            static_mb += non_kv_layers * 6.0
+        else:
+            # Qwen DeltaNet-style
+            static_mb += non_kv_layers * 4.5
     # Estimate runtime overhead
     batch_size = active.get("batch_size", 2048)
     ubatch_size = active.get("ubatch_size", 512)
@@ -1412,8 +1451,10 @@ def get_aux_vram(aux_info, aux_port):
             # Ollama KV cache defaults to q8_0; user can set OLLAMA_KV_CACHE_TYPE
             cache_bytes = 1.0
             ctx = aux_info.context_length
-            # DeepSeek/Kimi use MLA — flat ~70 KB/token
-            aux_is_mla = ("deepseek" in aux_info.name.lower() or "kimi" in aux_info.name.lower()) and "distill" not in aux_info.name.lower()
+            # DeepSeek/Kimi/Mistral Large 3 use MLA — flat ~70 KB/token
+            aux_is_mla = ("deepseek" in aux_info.name.lower() or "kimi" in aux_info.name.lower() or
+                          "mistral-large-3" in aux_info.name.lower() or "mistrallarge3" in aux_info.name.lower()) and \
+                         "distill" not in aux_info.name.lower()
             if aux_is_mla:
                 cache_mb = 70.0 * ctx / (1024)
             else:
