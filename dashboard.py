@@ -513,7 +513,24 @@ def detect_gpu_backend():
         return "amd"
     return None
 
+
+def _enable_nvidia_persistent_mode():
+    """Enable persistent mode so nvidia-smi stays resident between calls.
+    Reduces process spawn/teardown CPU spikes on each refresh cycle."""
+    try:
+        subprocess.run(
+            ["nvidia-smi", "-pm", "1"],
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+            timeout=5,
+        )
+    except (subprocess.SubprocessError, OSError, FileNotFoundError):
+        pass
+
+
 BACKEND = detect_gpu_backend()
+if BACKEND == "nvidia":
+    _enable_nvidia_persistent_mode()
 
 
 def _theme():
