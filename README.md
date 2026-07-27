@@ -1,135 +1,104 @@
 # llama-swap Dashboard
 
-Live GPU and inference monitor for llama-swap with optional Ollama auxiliary model.
+Live GPU and inference monitor for llama-swap (with optional Ollama auxiliary model).
 
-A clean terminal dashboard that monitors GPU stats and inference performance in real time. Auto-detects NVIDIA or AMD GPUs at startup and applies a matching color theme — no separate scripts needed.
+A clean terminal dashboard that shows real-time GPU stats, model VRAM estimates, decode performance, and recent prompts. Auto-detects NVIDIA, AMD, or mixed systems and applies a matching theme.
 
-> VRAM estimation is experimental and architecture-aware. Live GPU memory from `nvidia-smi` / `amd-smi` is always authoritative.
+> Live memory from `nvidia-smi` / `amd-smi` is always authoritative. The built-in VRAM estimate is a planning aid.
 
 ## Requirements
 
-- **Python 3.8+** (no extra packages — stdlib only)
-- **NVIDIA** or **AMD GPU** with drivers installed
-- **llama-swap** running on localhost (default port 8080)
+- Python 3.8+ (stdlib only — no extra packages)
+- NVIDIA and/or AMD GPU with working drivers
+- llama-swap (or plain llama-server) running
 
 ## Quick Start
-
-Double-click `dashboard.py` or run from a terminal:
 
 ```bash
 python dashboard.py
 ```
 
-Place the dashboard script in the same folder as your llama-swap `config.yaml` (optional — required for model name, quantization, and VRAM calculation features).
+Optional: place the script next to your llama-swap `config.yaml` for richer model name and quant detection.
+
+## What It Shows
+
+- **GPU panel** — Temperature, VRAM, utilization, power, and fan for every detected card (scales to any number of GPUs)
+- **System RAM** — Host memory usage, with CPU-offloaded model portion when partial offload is active
+- **Model VRAM estimate** — Weights + KV cache + runtime overhead, broken into Static and Runtime
+- **Tensor split** — Per-GPU share when `-ts` / `--tensor-split` is used
+- **Decode performance** — Speed by context length (p50 / p90)
+- **Recent prompts** — Rolling log with decode/prompt speeds, tokens, and cache hits
+- **Speculative decoding** — Live acceptance rate when active (MTP, draft models, DFlash, etc.)
+- **Session totals** — Cumulative input / output tokens and request count
 
 ## Auto-Detection
 
-The dashboard detects your GPU backend automatically at startup:
+| Situation              | Behavior                          |
+|------------------------|-----------------------------------|
+| NVIDIA only            | Green theme, `nvidia-smi`         |
+| AMD only               | Orange theme, `amd-smi`           |
+| Both present (mixed)   | Neutral theme, polls both SMIs    |
+| Vulkan / mixed compute | Lower runtime overhead path used  |
 
-| GPU | Detection Method | Color Theme |
-|-----|-----------------|-------------|
-| NVIDIA | `nvidia-smi` available | Green / Dark green |
-| AMD | `amd-smi` available | Orange / Red |
+## Model Fit View
 
-## Supported Models
+Press **F** to switch to a focused Model Fit Calculator screen:
 
-Accurate VRAM estimation with built-in architecture tables for: **Gemma family**, **Qwen family**, **Llama family**, **GLM 5.2**, **Kimi K2**, **Laguna 2.1**, **DeepSeek**, **Ornith**, **Bonsai**, **Mixtral**, **Mistral**, **Codestral**, **Mistral Nemo 2**, **Command Aura**, **Nemotron-5/H**, **Llama 4**, **Mistral Large 3**, and more.
+- Full breakdown (weights, KV, mmproj, draft, runtime)
+- Offload summary (GB on CPU + ngl ratio)
+- Live System RAM
+- Live GPU VRAM bars with tensor-split percentages
 
-Models not in the table fall back to live GPU memory usage reported by `nvidia-smi` / `amd-smi` instead of a calculated estimate. The dashboard never crashes on unknown models.
-
-> **Note:** The architecture tables will need updates as new models are released. Edit `MODEL_ARCHITECTURES`, `QWEN_HYBRID_LAYERS`, and `NEMOTRON_ATTENTION_LAYERS` directly in the script to add or correct entries.
-
-The dashboard creates its own `dashboard.conf` file automatically on first run. You don't need to edit or touch your `config.yaml` — the dashboard just reads it.
-
-The dashboard auto-detects llama-swap on first run. If it can't reach `localhost:8080`, it will prompt you to enter the correct host. Your setting is saved to `dashboard.conf` and reused on future runs.
+Press **F** again to return to the main dashboard.
 
 ## Configuration
 
-`dashboard.conf` is created automatically. You can edit it directly or delete it to reset:
+On first run the dashboard creates `dashboard.conf`:
 
 ```ini
-# llama-swap Dashboard configuration
-#
-# host            - llama-swap API URL (required)
-# config_yaml     - path to llama-swap config.yaml (optional, for model name + quant parsing)
-#                   Leave blank to skip quant parsing
-# aux_port        - Ollama auxiliary model port (default: 11434)
-
 host=http://localhost:8080
 config_yaml=config.yaml
 aux_port=11434
 ```
 
-### Command-line options
+Command-line options:
 
 ```bash
-# Use a custom host
 python dashboard.py --host http://localhost:9090
-
-# Change refresh interval (default: 2 seconds)
-python dashboard.py --refresh 5
-
-# See help
+python dashboard.py --refresh 2
 python dashboard.py --help
 ```
 
-## What It Shows
+## VRAM Estimation (Experimental)
 
-- **GPU Status** — Real-time temp, VRAM usage, utilization, power draw, and fan speed for every GPU detected. Works with 1 GPU or 8+ — scales automatically to whatever hardware you have.
-- **System RAM** — Host memory usage from llama-swap
-- **Model VRAM** — Calculated estimate (weights + KV cache + runtime overhead). Breakdown shown as **Static** (weights + KV) and **Runtime** (CUDA/HIP context, compute buffers, flash-attn, tensor sync). Live **`nvidia-smi` / `amd-smi`** remains the ground truth.
-- **Decode t/s by Context Length** — Shows decode speed across input token ranges. Reveals where throughput degrades as context grows. Solid bar shows median (p50), dim tail shows p90 spread, with total output tokens. Only requests with ≥512 input tokens are charted.
-- **Last Prompts** — Rolling log of recent inference requests with decode speed, prompt speed, input/output tokens, and cache hit count.
-- **Session Tokens** — Cumulative input, output, and request count for the active model.
-- **Speculative Decoding** — Acceptance rate displayed in real time when `--spec-type` is active.
+The dashboard builds an estimate from:
 
-## Model VRAM Calculation (EXPERIMENTAL)
+- Actual GGUF file size(s) (main model, mmproj, draft)
+- Architecture-aware KV cache calculation
+- Runtime overhead (context, compute buffers, flash-attn, multi-GPU sync)
+- Partial offload (`-ngl`) scaling
+- `--cache-ram` cap when present
 
-The dashboard estimates total VRAM usage by combining model weights with a calculated KV cache size. When multimodal (`--mmproj`) or speculative decoding (`--model-draft` / MTP) are used, the exact file sizes of those models are included too. The `--cache-ram` flag is respected — KV cache is capped to the specified limit when set.
+Architecture tables cover the common families (Qwen, Llama, Gemma, DeepSeek, Laguna, Nemotron, Mixtral, and others). Unknown models fall back to live SMI readings instead of a calculated estimate.
 
-The core formula starts with a model's architecture (layers, KV heads, head dimension) from a built-in table, then multiplies:
-
-```
-cache = 2 × layers × kv_heads × head_dim × cache_bytes × tokens
-```
-
-### Partial Offload (`-ngl`)
-
-When `-ngl N` is set (or `--n-gpu-layers` / `--gpu-layers`), only the first N layers and their KV cache reside on GPU. The dashboard scales weight and KV cache estimates by `min(ngl, layers) / layers`. mmproj, draft models, and runtime overhead are not scaled — they stay fully on GPU.
-
-When offloading is active, the Static line shows `(ngl N/L)` to indicate the partial offload ratio.
-
-### Model-Specific Adjustments
-
-| Model / Family | Behavior | Dashboard handling |
-|---------------|----------|-------------------|
-| **Qwen 3.5 / 3.6** | Only Gated-Attention layers hold KV (DeltaNet layers use linear attention) | `effective_layers` from `QWEN_HYBRID_LAYERS`; fixed DeltaNet state added for non-KV layers |
-| **Nemotron-5 / H** | ~8% of layers are attention; rest are Mamba-2 (fixed SSM state) | `effective_layers` from `NEMOTRON_ATTENTION_LAYERS`; Mamba state added for non-attention layers |
-| **Llama 4** | All layers hold KV; iRoPE only changes attention mask / chunking | Full layer count — no reduction |
-| **DeepSeek V3/R1, Kimi K2, Mistral Large 3** | MLA (Multi-head Latent Attention) — compressed KV cache | Flat ~70 KB/token estimate, scaled by quantization. Distill models use standard GQA. |
-| **Gemma** | Sliding-window + global layers; global layers reuse keys as values (K=V) → reduced cache on those layers | Window size from `GEMMA_ISWA_WINDOW` |
-| **MTP / Speculative Decoding** | Bundled MTP adds minimal overhead; separate draft models use full formula | Bundled MTP: single-layer per head. Separate draft: full KV × `spec_draft_n`. MLA MTP shares main cache. |
-
-### Runtime Overhead
-
-Context buffers, compute buffers, flash attention scratch, and tensor-parallel sync are estimated separately and shown under **Runtime**. These stay on GPU regardless of `-ngl`.
-
-### Caveats
-
-- Estimates assume full context; hybrid sliding window models may use less once context exceeds the window limit.
-- Layer sizes vary (especially MoE/hybrid models) — the per-layer ratio is an approximation.
-- Multi-GPU tensor-split is only partially modeled.
-- New models need table entries before accurate estimation kicks in.
-- `nvidia-smi` / `amd-smi` values are the authoritative measurement; the dashboard provides a useful planning estimate.
+The estimate is useful for planning and for understanding how flags affect memory. **Always treat live `nvidia-smi` / `amd-smi` numbers as ground truth.**
 
 ## Keyboard
 
-| Key | Action |
-|-----|--------|
-| **Ctrl+C** | Exit |
-| **Ctrl+R**, **c**, **r** | Reset chart history |
-| **+**, **=** | Show more prompts in log |
-| **-**, **_** | Show fewer prompts in log |
+| Key            | Action                        |
+|----------------|-------------------------------|
+| **F**          | Toggle Model Fit Calculator   |
+| **+** / **=**  | Show more recent prompts     |
+| **-** / **_**  | Show fewer recent prompts    |
+| **Ctrl+R** / **r** / **c** | Reset chart history |
+| **Ctrl+C**     | Exit                          |
+
+## Notes
+
+- Works with both llama-swap and plain llama-server
+- Multi-GPU and heterogeneous (NVIDIA + AMD) setups are supported
+- Speculative decoding modes (MTP, draft models, DFlash, etc.) are detected when present
+- New model architectures may need table entries for best estimate accuracy
 
 ## License
 
