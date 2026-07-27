@@ -123,6 +123,7 @@ REFRESH_OLLAMA_ACTIVE = 3  # GPU-smi compute/apps (local, ~5ms)
 QUANT_PATTERN = re.compile(
     r"(Q\d+_[A-Z0-9]+(?:_[A-Z0-9]+)*|"
     r"IQ\d+_[A-Z]+|"
+    r"Q\d+|"               # plain Q4, Q5, Q8, etc.
     r"F16|BF16)",
     re.IGNORECASE,
 )
