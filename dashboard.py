@@ -122,10 +122,15 @@ REFRESH_OLLAMA_ACTIVE = 3  # GPU-smi compute/apps (local, ~5ms)
 # Quantization pattern regex — matches common GGUF quant labels
 # Handles: Q4_K_M, Q5_K_XL, Q6_K, IQ4_XS, F16, BF16, etc.
 QUANT_PATTERN = re.compile(
-    r"(Q\d+_[A-Z0-9]+(?:_[A-Z0-9]+)*|"
-    r"IQ\d+_[A-Z]+|"
-    r"Q\d+|"               # plain Q4, Q5, Q8, etc.
-    r"F16|BF16)",
+    r"(Q\d+_[A-Z0-9]+(?:_[A-Z0-9]+)*|"          # Q4_K_M, Q5_K_XL, …
+     r"IQ\d+_[A-Z0-9]+|"                         # IQ4_XS, IQ3_XXS, …
+     r"Q\d+|"                                    # plain Q4, Q5, Q8, …
+     r"F16|BF16|FP16|"
+     r"NVFP4|NVFP8|NVFP6|FP4|FP8|FP6|"
+     r"MXFP4|MXFP8|MXFP|"
+     r"TQ1_0|TQ2_0|Q1_0|Q1_K|"
+     r"1\.58bit|ternary|bitnet|"
+     r"EXL2|EXL3)",
     re.IGNORECASE,
 )
 
@@ -261,6 +266,9 @@ MODEL_ARCHITECTURES = {
 QUANT_CACHE_BYTES = {
     "f16":    2.0,
     "bf16":   2.0,
+    "fp16":   2.0,
+    "fp8":    1.0,
+    "nvfp8":  1.0,
     "q8_0":   1.0,
     "q6_k":   0.75,
     "q5_k_m": 0.625,
@@ -273,9 +281,26 @@ QUANT_CACHE_BYTES = {
     "iq4_xs":  0.5,
     "q3_k_m":  0.375,
     "q2_k":    0.25,
+    # 4-bit formats (NVFP4, MXFP4, FP4)
+    "nvfp4":   0.5,
+    "mxfp4":   0.5,
+    "mxfp8":   1.0,
+    "mxfp":    0.5,
+    "fp4":     0.5,
+    "nvfp6":   0.75,
+    "fp6":     0.75,
     # Bonsai 27B quantizations (1-bit and 1.58-bit ternary)
     "q1_0":    0.125,
+    "q1_k":    0.125,
     "q2_0":    0.1875,
+    "tq1_0":   0.125,
+    "tq2_0":   0.1875,
+    "1.58bit": 0.1875,
+    "ternary": 0.1875,
+    "bitnet":  0.1875,
+    # EXL2/EXL3 — treat as ~4-bit for cache estimation
+    "exl2":    0.5,
+    "exl3":    0.5,
 }
 
 # Gemma iSWA (Interleaved Sliding Window Attention): every other layer only
