@@ -1413,63 +1413,97 @@ def fetch_running_models(host):
                 total = sum(split_ratios)
                 if total > 0:
                     split_pct = [round(v / total * 100) for v in split_ratios]
-            # ── Complete flag parser (July 2026 llama.cpp / llama-server) ──
+            # ── Strict flag parser (July 2026 llama.cpp) ──────────────────
             all_flags = {}
 
+            SHORT_WITH_VALUE = {
+                "c", "b", "ub", "ngl", "t", "tb", "n", "ts",
+                "m", "h", "p", "ctk", "ctv",
+            }
+
             BOOLEAN_FLAGS = {
-                "flash-attn", "fa", "mlock", "no-mmap", "mmap", "cont-batching",
+                "flash-attn", "fa", "mlock", "mmap", "no-mmap", "cont-batching",
                 "embedding", "embeddings", "metrics", "slots", "props",
                 "jinja", "special", "no-special", "log-disable", "verbose",
                 "timing-outputs", "no-kv-offload", "no-warmup", "warmup",
-                "check-tensors", "no-host", "host", "hf-cache", "offline",
+                "check-tensors", "offline", "context-shift", "no-context-shift",
             }
 
-            def _normalize_bool(val):
-                if val is None:
-                    return True
-                v = str(val).lower().strip()
-                if v in ("1", "true", "on", "yes", "enable", "enabled"):
-                    return True
-                if v in ("0", "false", "off", "no", "disable", "disabled"):
-                    return False
-                return val
+            def _clean_val(v):
+                if v is None:
+                    return None
+                v = v.strip().strip('"\'')
+                if v.endswith(".gguf"):
+                    v = os.path.basename(v)
+                return v
 
-            flag_re = re.compile(
-                r'(?:^|\s)'
-                r'('
-                r'--[a-zA-Z0-9][a-zA-Z0-9_-]*'
-                r'|-[a-zA-Z]'
-                r')'
-                r'(?:'
-                r'=(["\']?)([^"\'\s]+)\2'
-                r'|'
-                r'\s+(["\']?)([^"\'\s]+)\4'
-                r')?',
-                re.IGNORECASE
-            )
+            def _is_bool_token(tok):
+                return tok.lower() in ("on", "off", "true", "false", "1", "0", "yes", "no")
 
-            for m in flag_re.finditer(cmd):
-                name = m.group(1)
-                raw_val = m.group(3) or m.group(5)
+            # Tokenize respecting quotes
+            tokens = []
+            for m in re.finditer(r'"[^"]*"|\'[^\']*\'|\S+', cmd):
+                tokens.append(m.group(0))
 
-                if name.lower() in ("llama-server", "llama-server.exe", "llama-cli"):
+            j = 0
+            while j < len(tokens):
+                tok = tokens[j]
+
+                if tok.lower() in ("llama-server", "llama-server.exe", "llama-cli"):
+                    j += 1
                     continue
 
-                if raw_val:
-                    raw_val = raw_val.strip().strip('"\'')
-                    if raw_val.endswith(".gguf"):
-                        raw_val = os.path.basename(raw_val)
+                # Long flag: --flag or --flag=value
+                if tok.startswith("--"):
+                    if "=" in tok:
+                        name, _, raw = tok.partition("=")
+                        all_flags[name] = _clean_val(raw)
+                        j += 1
+                        continue
 
-                base = name.lstrip("-").lower()
-                if base.startswith("no-"):
-                    real = base[3:]
-                    all_flags["--" + real] = False
+                    name = tok
+                    base = name[2:].lower()
+
+                    if j + 1 < len(tokens):
+                        nxt = tokens[j + 1]
+                        if not nxt.startswith("-") or _is_bool_token(nxt):
+                            val = _clean_val(nxt)
+                            if base in BOOLEAN_FLAGS or base.startswith("no-"):
+                                if val is None or val.lower() in ("on", "true", "1", "yes"):
+                                    all_flags[name] = True
+                                elif val.lower() in ("off", "false", "0", "no"):
+                                    all_flags[name] = False
+                                else:
+                                    all_flags[name] = val
+                            else:
+                                all_flags[name] = val
+                            j += 2
+                            continue
+
+                    if base.startswith("no-"):
+                        all_flags["--" + base[3:]] = False
+                    else:
+                        all_flags[name] = True
+                    j += 1
                     continue
 
-                if base in BOOLEAN_FLAGS or name.lstrip("-") in BOOLEAN_FLAGS:
-                    all_flags[name] = _normalize_bool(raw_val)
-                else:
-                    all_flags[name] = raw_val if raw_val is not None else True
+                # Short flag: -c, -b, etc.
+                if tok.startswith("-") and len(tok) >= 2:
+                    name = tok
+                    key = tok.lstrip("-")
+
+                    if key in SHORT_WITH_VALUE and j + 1 < len(tokens):
+                        nxt = tokens[j + 1]
+                        if not nxt.startswith("-") or _is_bool_token(nxt):
+                            all_flags[name] = _clean_val(nxt)
+                            j += 2
+                            continue
+
+                    all_flags[name] = True
+                    j += 1
+                    continue
+
+                j += 1
             running.append({
                 "model_id": item.get("model", ""),
                 "state": item.get("state", ""),
@@ -2664,50 +2698,78 @@ def render_main_model_decode(valid_metrics, sys_info, main_vram_info=None):
 
 
 def _format_flags(all_flags):
-    """One flag per line, dim, values shown cleanly."""
+    """Grouped, clean flag list for the Fit view."""
     if not all_flags:
         return []
 
-    priority = [
-        "-m", "--model",
-        "-c", "--ctx-size",
-        "-ngl", "--n-gpu-layers", "--gpu-layers",
-        "-ctk", "--cache-type-k",
-        "-ctv", "--cache-type-v",
-        "-ts", "--tensor-split",
-        "-b", "--batch-size",
-        "-ub", "--ubatch-size",
-        "--mmproj",
-        "--model-draft",
-        "--flash-attn", "--fa",
-        "--parallel",
-        "--cache-ram",
-        "--mlock",
-        "--no-mmap",
-        "--cont-batching",
-        "--jinja",
-        "--host", "--port",
+    groups = [
+        ("Model", [
+            "-m", "--model", "--mmproj", "--model-draft",
+        ]),
+        ("Context & Cache", [
+            "-c", "--ctx-size", "-ctk", "--cache-type-k",
+            "-ctv", "--cache-type-v", "--cache-ram",
+            "--no-kv-offload",
+        ]),
+        ("Offload & Split", [
+            "-ngl", "--n-gpu-layers", "--gpu-layers",
+            "-ts", "--tensor-split",
+        ]),
+        ("Batching", [
+            "-b", "--batch-size", "-ub", "--ubatch-size",
+            "--parallel", "--cont-batching",
+        ]),
+        ("Sampling / Spec", [
+            "--spec-type", "--spec-draft-n-max",
+            "--draft", "--model-draft",
+            "--reasoning-budget", "--context-shift",
+        ]),
+        ("Memory", [
+            "--mlock", "--mmap", "--no-mmap",
+        ]),
+        ("Server", [
+            "--host", "--port", "--metrics",
+            "--jinja", "--chat-template-kwargs",
+        ]),
     ]
 
     lines = []
-    seen = set()
+    used = set()
 
-    def _fmt(k, v):
+    def fmt(k, v):
         if v is True:
             return f"  {DIM}{k}{RESET}"
         if v is False:
-            return f"  {DIM}{k} off{RESET}"
-        return f"  {DIM}{k} {v}{RESET}"
+            return f"  {DIM}{k}{RESET} {DIM}off{RESET}"
+        val = str(v)
+        if len(val) > 42:
+            val = val[:39] + "..."
+        return f"  {DIM}{k}{RESET} {SOFT_WHITE}{val}{RESET}"
 
-    for key in priority:
-        if key in all_flags:
-            lines.append(_fmt(key, all_flags[key]))
-            seen.add(key)
+    for title, keys in groups:
+        section = []
+        for k in keys:
+            if k in all_flags:
+                section.append(fmt(k, all_flags[k]))
+                used.add(k)
 
-    for key, val in sorted(all_flags.items()):
-        if key in seen or key in ("-m", "--model"):
+        if section:
+            lines.append(f"  {DIM}{title}{RESET}")
+            lines.extend(section)
+            lines.append("")
+
+    leftovers = []
+    for k, v in sorted(all_flags.items()):
+        if k in used or k in ("-m", "--model"):
             continue
-        lines.append(_fmt(key, val))
+        leftovers.append(fmt(k, v))
+
+    if leftovers:
+        lines.append(f"  {DIM}Other{RESET}")
+        lines.extend(leftovers)
+
+    while lines and lines[-1] == "":
+        lines.pop()
 
     return lines
 
