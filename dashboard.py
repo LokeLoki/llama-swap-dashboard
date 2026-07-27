@@ -246,7 +246,7 @@ MODEL_ARCHITECTURES = {
     "llama3.2-3b":       (28, 8, 128),
     "llama3.2-1b":       (16, 4, 64),
     # Phi family
-    "phi-4":             (40, 40, 128),
+    "phi-4":             (40, 10, 128),
     "phi-3.5":           (32, 32, 96),
     "phi-3":             (32, 32, 96),
     # Command-R family
