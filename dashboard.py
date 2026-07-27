@@ -2820,11 +2820,12 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append(token_line)
 
-    # Subtle footer: full model path
+    # Model filename — between borders, in backend theme color
     if running_models and running_models[0].get("model_path"):
         rm = running_models[0]
         gguf = os.path.basename(rm["model_path"])
-        lines.append(f"   {DIM}└─ {gguf}{RESET}")
+        lines.append(f"  {PRIMARY}{gguf}{RESET}")
+    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append(f"   {DIM}- / + prompts | F fit | Ctrl+R reset | Ctrl+C quit{RESET}")
     lines.append("")
 
