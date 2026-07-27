@@ -2983,7 +2983,8 @@ def main():
                     identity = get_active_model_identity(valid, config_yaml)
                     render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
                     spinner_frame += 1
-                time.sleep(0.05)
+                    break
+                time.sleep(0.02)
 
     finally:
         # Restore Unix terminal settings (audit fix #3)
