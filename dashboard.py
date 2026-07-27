@@ -2962,7 +2962,7 @@ def main():
     
             # Fixed refresh interval — responsive sleep loop for instant key feedback
             elapsed = time.time() - loop_start
-            sleep_time = max(0.1, refresh - elapsed)
+            sleep_time = max(0.08, refresh - elapsed)
             wait_end = time.time() + sleep_time
             while time.time() < wait_end:
                 # Drain every pending key — only the last one counts
@@ -2998,7 +2998,7 @@ def main():
                         render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
                     spinner_frame += 1
                     break
-                time.sleep(0.015)
+                time.sleep(0.012)
 
     finally:
         # Restore Unix terminal settings (audit fix #3)
