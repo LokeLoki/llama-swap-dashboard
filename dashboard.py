@@ -1201,13 +1201,16 @@ def get_ollama_active_amd():
     return False
 
 
-def get_inference_gpu_indices():
+def get_inference_gpu_indices(min_mem_mb=800):
     """Return a set of GPU indices that have a real inference process.
     Ignores display/desktop compositor memory.
     Works on NVIDIA, AMD, and mixed systems.
     """
     active = set()
-    inference_names = ("llama", "ollama", "vllm", "text-generation", "exllama", "kobold", "tabby")
+    inference_names = (
+        "llama", "ollama", "vllm", "text-generation", "exllama",
+        "kobold", "tabby", "aphrodite", "sglang"
+    )
 
     # ── NVIDIA ──────────────────────────────────────────────
     if HAS_NVIDIA:
@@ -1232,7 +1235,7 @@ def get_inference_gpu_indices():
                 if len(parts) < 3:
                     continue
                 uuid, name, mem = parts[0], parts[1].lower(), parts[2]
-                if any(k in name for k in inference_names) and float(mem) > 800:
+                if any(k in name for k in inference_names) and float(mem) >= min_mem_mb:
                     idx = uuid_to_idx.get(uuid)
                     if idx is not None:
                         active.add(idx)
@@ -1247,7 +1250,17 @@ def get_inference_gpu_indices():
                 capture_output=True, text=True, timeout=2,
             )
             data = json.loads(result.stdout)
-            nvidia_count = sum(1 for g in (get_gpu_stats() or []) if g.vendor == "nvidia")
+            # On mixed systems the dashboard renumbers AMD cards after NVIDIA ones
+            nvidia_count = 0
+            if HAS_NVIDIA:
+                try:
+                    nr = subprocess.run(
+                        ["nvidia-smi", "-L"],
+                        capture_output=True, text=True, timeout=2,
+                    )
+                    nvidia_count = len([l for l in nr.stdout.splitlines() if l.strip()])
+                except Exception:
+                    pass
             for gd in data.get("gpu_data", []):
                 gpu_idx = gd.get("gpu", 0)
                 for proc in gd.get("processes", []):
@@ -2047,6 +2060,9 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         inference_gpus = get_inference_gpu_indices()
         if len(inference_gpus) >= 1:
             num_active_gpus = len(inference_gpus)
+    # Safety cap: can't exceed total GPU count
+    if gpus and num_active_gpus > len(gpus):
+        num_active_gpus = len(gpus)
     overhead = estimate_runtime_overhead(
         gpus, batch_size, ubatch_size, num_active_gpus, ctx_size,
         weight_mb, active["model_path"],
