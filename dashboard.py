@@ -2348,7 +2348,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
             if pct > 0:
                 gpu_overhead_mb = main_vram_info.overhead_mb * (pct / 100)
                 gpu_overhead_gb = gpu_overhead_mb / 1024
-                runtime_label = f" {DIM}{gpu_overhead_gb:.1f} GB (rtime){RESET}"
+                runtime_label = f" {DIM_CYAN}{gpu_overhead_gb:.1f}{RESET}{WHITE} GB{RESET} {DIM}(rtime){RESET}"
 
         lines.append(f"  {BOLD}{WHITE}[GPU {gpu.id}] {gpu.name}{RESET}")
         lines.append(f"  {status}  {DIM}{color_temp(temp)}{temp}°C{RESET}")
