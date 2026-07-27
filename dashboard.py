@@ -1408,7 +1408,7 @@ def short_model_name(model_path_or_id):
     - Gemma E-variants: ge4, ge2, g12, g31
     - DeepSeek R: dr14, dr33
     Returns the short alias or the original if nothing matches."""
-    text = model_path_or_id.lower()
+    text = os.path.basename(model_path_or_id).lower()
     # Strip .gguf extension first
     text = re.sub(r'\.gguf$', '', text)
     # Remove common suffixes that don't affect the name
