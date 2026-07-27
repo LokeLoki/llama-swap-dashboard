@@ -2130,12 +2130,15 @@ def fetch_metrics(metrics_url):
 
 
 def filter_valid(metrics):
-    """Filter to valid requests: status 200, >= 512 input tokens (prompt processing), >= 5 output tokens."""
+    """Filter to valid requests: status 200, meaningful output, and either a real prompt or a cached continuation."""
     return [
         m for m in metrics
         if m.get("resp_status_code") == 200
-        and m.get("tokens", {}).get("input_tokens", 0) >= 512
         and m.get("tokens", {}).get("output_tokens", 0) >= 5
+        and (
+            m.get("tokens", {}).get("input_tokens", 0) >= 32
+            or m.get("tokens", {}).get("cache_tokens", 0) >= 512
+        )
     ]
 
 
