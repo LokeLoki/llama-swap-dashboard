@@ -129,8 +129,8 @@ QUANT_PATTERN = re.compile(
 )
 
 # Pre-compiled regexes for path/flag parsing (avoids recompile overhead per cycle)
-RE_MODEL_PATH_Q = re.compile(r'-m\s+"([^"]+\.gguf)"')
-RE_MODEL_PATH_UQ = re.compile(r'-m\s+(\S+\.gguf)')
+RE_MODEL_PATH_Q = re.compile(r'(?:-m|--model)\s+"([^"]+\.gguf)"')
+RE_MODEL_PATH_UQ = re.compile(r'(?:-m|--model)\s+(\S+\.gguf)')
 RE_MMPROJ_PATH_Q = re.compile(r'--mmproj\s+"([^"]+\.gguf)"')
 RE_MMPROJ_PATH_UQ = re.compile(r'--mmproj\s+(\S+\.gguf)')
 RE_DRAFT_PATH_Q = re.compile(r'--model-draft\s+"([^"]+\.gguf)"')
@@ -1077,7 +1077,7 @@ def fetch_running_models(host):
                 resolved = safe_model_path(model_path)
                 if resolved:
                     try:
-                        model_file_mb = os.path.getsize(resolved) / (1024 * 1024)
+                        model_file_mb = _cached_file_size(resolved)
                     except OSError:
                         pass
             # Parse cache type from -ctk/--cache-type-k flag
@@ -1106,7 +1106,7 @@ def fetch_running_models(host):
                 resolved = safe_model_path(mmproj_path)
                 if resolved:
                     try:
-                        mmproj_file_mb = os.path.getsize(resolved) / (1024 * 1024)
+                        mmproj_file_mb = _cached_file_size(resolved)
                     except OSError:
                         pass
             # Parse --model-draft path from cmd
@@ -1122,7 +1122,7 @@ def fetch_running_models(host):
                 resolved = safe_model_path(draft_path)
                 if resolved:
                     try:
-                        draft_file_mb = os.path.getsize(resolved) / (1024 * 1024)
+                        draft_file_mb = _cached_file_size(resolved)
                     except OSError:
                         pass
             # Parse --cache-ram cap (in MB)
@@ -1284,9 +1284,9 @@ def detect_local_servers():
         for srv in servers:
             cmd = srv["cmd"]
             model_path = ""
-            m_match = re.search(r'(?:-m|--model)\s+"([^"]+\.gguf)"', cmd)
+            m_match = RE_MODEL_PATH_Q.search(cmd)
             if not m_match:
-                m_match = re.search(r'(?:-m|--model)\s+(\S+\.gguf)', cmd)
+                m_match = RE_MODEL_PATH_UQ.search(cmd)
             if m_match:
                 model_path = m_match.group(1)
 
@@ -1296,7 +1296,7 @@ def detect_local_servers():
                 resolved = safe_model_path(model_path)
                 if resolved:
                     try:
-                        model_file_mb = os.path.getsize(resolved) / (1024 * 1024)
+                        model_file_mb = _cached_file_size(resolved)
                     except OSError:
                         pass
 
@@ -1355,7 +1355,7 @@ def detect_local_servers():
                 resolved = safe_model_path(mmproj_path)
                 if resolved:
                     try:
-                        mmproj_file_mb = os.path.getsize(resolved) / (1024 * 1024)
+                        mmproj_file_mb = _cached_file_size(resolved)
                     except OSError:
                         pass
 
@@ -1371,7 +1371,7 @@ def detect_local_servers():
                 resolved = safe_model_path(draft_path)
                 if resolved:
                     try:
-                        draft_file_mb = os.path.getsize(resolved) / (1024 * 1024)
+                        draft_file_mb = _cached_file_size(resolved)
                     except OSError:
                         pass
 
