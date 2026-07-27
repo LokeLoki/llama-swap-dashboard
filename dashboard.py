@@ -2512,7 +2512,6 @@ def render_main_model_decode(valid_metrics, sys_info, main_vram_info=None):
     """Render system RAM and return latest decode tps from valid metrics."""
     lines = []
 
-    # Get latest decode speed from valid metrics
     latest = valid_metrics[-1] if valid_metrics else None
     decode_tps = latest.get("tokens", {}).get("tokens_per_second", 0) if latest else 0
 
@@ -2522,19 +2521,20 @@ def render_main_model_decode(valid_metrics, sys_info, main_vram_info=None):
         sys_mem_pct = (sys_mem_used / sys_mem_total * 100) if sys_mem_total else 0
         sys_bar = util_bar(sys_mem_pct, 16)
         sys_mem_str = f"{sys_mem_used / 1024:.1f} / {sys_mem_total / 1024:.0f} GB"
-        # Show CPU-offloaded model portion on System RAM line
+
+        # CPU-offloaded portion of the model
         offload_label = ""
         if main_vram_info and main_vram_info.offload_ratio < 1.0:
-            cpu_mb = main_vram_info.weight_mb * (1.0 - main_vram_info.offload_ratio)
-            cpu_mb += main_vram_info.cache_mb * (1.0 - main_vram_info.offload_ratio)
-            cpu_gb = cpu_mb / 1024
-            offload_label = f" {DIM_CYAN}{cpu_gb:.1f} GB{RESET}"
+            cpu_mb = (main_vram_info.weight_mb + main_vram_info.cache_mb) * (1.0 - main_vram_info.offload_ratio)
+            if cpu_mb > 10:
+                offload_label = f"  {DIM_CYAN}{cpu_mb / 1024:.1f} GB{RESET} {DIM}(CPU){RESET}"
+
         lines.append(f"  {BOLD}System RAM{RESET}: {sys_bar} {sys_mem_str}{offload_label}")
 
     return lines, decode_tps
 
 
-def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None):
+def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sys_info=None):
     """Full-screen model-fit view. Same chrome language as the main dashboard."""
     lines = []
 
@@ -2546,17 +2546,18 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None):
     if not main_vram_info:
         lines.append(f"  {DIM}No model loaded{RESET}")
         lines.append("")
-        lines.append(f"  {DIM}F return to dashboard{RESET}")
         lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
+        lines.append(f"  {DIM}F return to dashboard{RESET}")
         return lines
 
-    # Full model filename as display name
+    # ── Identity ──────────────────────────────────────────────
     path = (running_models[0].get("model_path") if running_models else "") or ""
-    model_file = os.path.basename(path) if path else "—"
+    short = short_model_name(path) if path else "—"
     quant = f" {identity.quant}" if identity and identity.quant else ""
-    lines.append(f"  {BOLD}{model_file}{quant}{RESET}")
+    lines.append(f"  {BOLD}{short}{quant}{RESET}")
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
 
+    # ── Model breakdown ───────────────────────────────────────
     w = main_vram_info.weight_mb / 1024
     k = main_vram_info.cache_mb / 1024
     m = main_vram_info.mmproj_mb / 1024
@@ -2582,37 +2583,50 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None):
     lines.append("")
     lines.append(f"  {BOLD}Total        {DIM_CYAN}{total:7.2f}{RESET} {WHITE}GB{RESET}")
 
-    # Backend label
+    # Offload — right under Total
+    if main_vram_info.offload_ratio < 1.0 and main_vram_info.layers > 0:
+        gpu_l = int(main_vram_info.offload_ratio * main_vram_info.layers)
+        cpu_mb = (main_vram_info.weight_mb + main_vram_info.cache_mb) * (1.0 - main_vram_info.offload_ratio)
+        if cpu_mb > 10:
+            lines.append(
+                f"  {DIM}Offload      {RESET}{DIM_CYAN}{cpu_mb / 1024:.1f}{RESET} {WHITE}GB{RESET} "
+                f"{DIM}on CPU  ·  ngl {gpu_l}/{main_vram_info.layers}{RESET}"
+            )
+
+    # Backend
     backend_display = (BACKEND or "unknown").upper()
     lines.append(f"  {DIM}Backend      {RESET}{WHITE}{backend_display}{RESET}")
 
-    # Offload
-    if main_vram_info.offload_ratio < 1.0 and main_vram_info.layers > 0:
-        gpu_l = int(main_vram_info.offload_ratio * main_vram_info.layers)
-        lines.append(f"  {DIM}Offload      {RESET}{gpu_l}/{main_vram_info.layers} layers "
-                     f"({main_vram_info.offload_ratio*100:.0f}% GPU){RESET}")
-
-    # Tensor split — reuse SMI-style bars + used/total GB
-    split = main_vram_info.split_pct
-    if split and gpus and any(p > 0 for p in split):
+    # ── System RAM (clean — no CPU label) ─────────────────────
+    if sys_info:
         lines.append(f"  {DIM}{'─' * 56}{RESET}")
-        lines.append(f"  {BOLD}Tensor split{RESET}  {DIM}(-ts){RESET}")
-        for i, pct in enumerate(split):
-            if pct <= 0:
-                continue
-            if i < len(gpus):
-                gpu = gpus[i]
-                mem_used = gpu.mem_used_mb
-                mem_total = gpu.mem_total_mb
-                mem_pct = (mem_used / mem_total * 100) if mem_total else 0
-                mem_str = f"{mem_used / 1024:.1f} / {mem_total / 1024:.0f} GB"
-                vram_bar = util_bar(mem_pct, 14)
-                lines.append(f"  {DIM}[{gpu.id}]{RESET} {gpu.name:<14} {vram_bar} {mem_str} {DIM}({pct:.0f}%){RESET}")
-            else:
-                lines.append(f"  {DIM}[{i}]{RESET} GPU {i:<12} {pct:5.1f}%{RESET}")
+        sys_mem_used = sys_info.mem_used_mb
+        sys_mem_total = sys_info.mem_total_mb
+        sys_mem_pct = (sys_mem_used / sys_mem_total * 100) if sys_mem_total else 0
+        sys_bar = util_bar(sys_mem_pct, 16)
+        sys_mem_str = f"{sys_mem_used / 1024:.1f} / {sys_mem_total / 1024:.0f} GB"
+        lines.append(f"  {BOLD}System RAM{RESET}  {sys_bar} {sys_mem_str}")
 
-    lines.append(f"  {DIM}F return to dashboard{RESET}")
+    # ── Live GPUs ─────────────────────────────────────────────
+    if gpus:
+        lines.append(f"  {DIM}{'─' * 56}{RESET}")
+        lines.append(f"  {BOLD}GPUs{RESET}")
+        split = main_vram_info.split_pct
+        for i, gpu in enumerate(gpus):
+            mem_used = gpu.mem_used_mb
+            mem_total = gpu.mem_total_mb
+            mem_pct = (mem_used / mem_total * 100) if mem_total else 0
+            mem_str = f"{mem_used / 1024:.1f} / {mem_total / 1024:.0f} GB"
+            vram_bar = util_bar(mem_pct, 14)
+
+            ts_label = ""
+            if split and i < len(split) and split[i] > 0:
+                ts_label = f"  {DIM}({split[i]:.0f}%){RESET}"
+
+            lines.append(f"  {DIM}[{gpu.id}]{RESET} {gpu.name:<14} {vram_bar} {mem_str}{ts_label}")
+
     lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
+    lines.append(f"  {DIM}F return to dashboard{RESET}")
     lines.append("")
     return lines
 
@@ -2928,7 +2942,7 @@ def main():
             if fit_mode:
                 # Full-screen VRAM fit calculator
                 main_vram_info = get_main_model_vram(running_models, valid, gpus) if running_models else None
-                fit_lines = render_vram_fit(main_vram_info, running_models, gpus, identity)
+                fit_lines = render_vram_fit(main_vram_info, running_models, gpus, identity, sys_info)
                 sys.stdout.write("\033[H\033[0J")
                 sys.stdout.write("\n".join(fit_lines))
                 sys.stdout.flush()
