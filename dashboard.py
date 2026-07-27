@@ -1940,8 +1940,19 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         offload_ratio = gpu_layers / float(layers)
     else:
         offload_ratio = 1.0  # unknown arch → assume full GPU
-    # Scale the parts that move with -ngl: weights + KV cache
-    weight_mb = weight_mb * offload_ratio
+
+    # Scale the parts that move with -ngl: weights + KV cache.
+    # token_embd.weight + output/lm_head are normally kept on GPU even under partial -ngl.
+    # On typical mid-2026 models (Qwen3.6/3.5-27B, 35B-A3B, etc.) these tensors are ~1.3–1.8 GB.
+    EMBEDDING_FIXED_MB = 1300.0
+
+    if 0.0 < offload_ratio < 1.0:
+        # Partial offload: keep embedding/lm_head cost on GPU, scale only the rest
+        scalable = max(0.0, weight_mb - EMBEDDING_FIXED_MB)
+        weight_mb = EMBEDDING_FIXED_MB + scalable * offload_ratio
+    else:
+        weight_mb = weight_mb * offload_ratio
+
     cache_mb = cache_mb * offload_ratio
     # Apply --cache-ram cap AFTER offload scaling (matches llama.cpp order)
     cache_ram_cap = active.get("cache_ram_mb", -1)
