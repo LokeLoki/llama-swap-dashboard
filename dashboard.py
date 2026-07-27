@@ -1413,20 +1413,63 @@ def fetch_running_models(host):
                 total = sum(split_ratios)
                 if total > 0:
                     split_pct = [round(v / total * 100) for v in split_ratios]
-            # Parse ALL flags generically from cmd
+            # ── Complete flag parser (July 2026 llama.cpp / llama-server) ──
             all_flags = {}
-            for flag_match in re.finditer(r'(?:^|\s)(--[a-zA-Z0-9_-]+|--[a-zA-Z0-9_-]+(?:\s+[^\s"]+)|-[a-zA-Z]\s+([^\s"]+))', cmd):
-                flag_str = flag_match.group(1).strip()
-                parts = flag_str.split(None, 1)
-                flag_name = parts[0]
-                flag_value = parts[1] if len(parts) > 1 else None
-                if flag_name in ('llama-server.exe', 'llama-server'):
+
+            BOOLEAN_FLAGS = {
+                "flash-attn", "fa", "mlock", "no-mmap", "mmap", "cont-batching",
+                "embedding", "embeddings", "metrics", "slots", "props",
+                "jinja", "special", "no-special", "log-disable", "verbose",
+                "timing-outputs", "no-kv-offload", "no-warmup", "warmup",
+                "check-tensors", "no-host", "host", "hf-cache", "offline",
+            }
+
+            def _normalize_bool(val):
+                if val is None:
+                    return True
+                v = str(val).lower().strip()
+                if v in ("1", "true", "on", "yes", "enable", "enabled"):
+                    return True
+                if v in ("0", "false", "off", "no", "disable", "disabled"):
+                    return False
+                return val
+
+            flag_re = re.compile(
+                r'(?:^|\s)'
+                r'('
+                r'--[a-zA-Z0-9][a-zA-Z0-9_-]*'
+                r'|-[a-zA-Z]'
+                r')'
+                r'(?:'
+                r'=(["\']?)([^"\'\s]+)\2'
+                r'|'
+                r'\s+(["\']?)([^"\'\s]+)\4'
+                r')?',
+                re.IGNORECASE
+            )
+
+            for m in flag_re.finditer(cmd):
+                name = m.group(1)
+                raw_val = m.group(3) or m.group(5)
+
+                if name.lower() in ("llama-server", "llama-server.exe", "llama-cli"):
                     continue
-                if flag_value and flag_value.startswith('"') and flag_value.endswith('"'):
-                    flag_value = flag_value.strip('"')
-                if flag_value and flag_value.endswith('.gguf'):
-                    flag_value = os.path.basename(flag_value)
-                all_flags[flag_name] = flag_value
+
+                if raw_val:
+                    raw_val = raw_val.strip().strip('"\'')
+                    if raw_val.endswith(".gguf"):
+                        raw_val = os.path.basename(raw_val)
+
+                base = name.lstrip("-").lower()
+                if base.startswith("no-"):
+                    real = base[3:]
+                    all_flags["--" + real] = False
+                    continue
+
+                if base in BOOLEAN_FLAGS or name.lstrip("-") in BOOLEAN_FLAGS:
+                    all_flags[name] = _normalize_bool(raw_val)
+                else:
+                    all_flags[name] = raw_val if raw_val is not None else True
             running.append({
                 "model_id": item.get("model", ""),
                 "state": item.get("state", ""),
@@ -2621,11 +2664,12 @@ def render_main_model_decode(valid_metrics, sys_info, main_vram_info=None):
 
 
 def _format_flags(all_flags):
-    """Return neat one-flag-per-line strings for the fit view."""
+    """One flag per line, dim, values shown cleanly."""
     if not all_flags:
         return []
 
     priority = [
+        "-m", "--model",
         "-c", "--ctx-size",
         "-ngl", "--n-gpu-layers", "--gpu-layers",
         "-ctk", "--cache-type-k",
@@ -2635,31 +2679,35 @@ def _format_flags(all_flags):
         "-ub", "--ubatch-size",
         "--mmproj",
         "--model-draft",
-        "--flash-attn",
+        "--flash-attn", "--fa",
         "--parallel",
         "--cache-ram",
+        "--mlock",
+        "--no-mmap",
+        "--cont-batching",
+        "--jinja",
+        "--host", "--port",
     ]
 
     lines = []
     seen = set()
 
+    def _fmt(k, v):
+        if v is True:
+            return f"  {DIM}{k}{RESET}"
+        if v is False:
+            return f"  {DIM}{k} off{RESET}"
+        return f"  {DIM}{k} {v}{RESET}"
+
     for key in priority:
         if key in all_flags:
-            val = all_flags[key]
-            if val is None:
-                lines.append(f"  {DIM}{key}{RESET}")
-            else:
-                lines.append(f"  {DIM}{key} {val}{RESET}")
+            lines.append(_fmt(key, all_flags[key]))
             seen.add(key)
 
-    skip = {"llama-server", "llama-server.exe", "-m", "--model"}
     for key, val in sorted(all_flags.items()):
-        if key in seen or key in skip:
+        if key in seen or key in ("-m", "--model"):
             continue
-        if val is None:
-            lines.append(f"  {DIM}{key}{RESET}")
-        else:
-            lines.append(f"  {DIM}{key} {val}{RESET}")
+        lines.append(_fmt(key, val))
 
     return lines
 
@@ -2687,14 +2735,7 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sy
     lines.append(f"  {BOLD}{short}{quant}{RESET}")
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
 
-    # ── Flags (one per line, dim) ──────────────────────────────
-    all_flags = running_models[0].get("all_flags") if running_models else None
-    flags = _format_flags(all_flags)
-    if flags:
-        lines.extend(flags)
-        lines.append(f"  {DIM}{'─' * 56}{RESET}")
-
-    # ── Model breakdown ────────────────────────────────────────
+    # ── Model breakdown ───────────────────────────────────────
     w = main_vram_info.weight_mb / 1024
     k = main_vram_info.cache_mb / 1024
     m = main_vram_info.mmproj_mb / 1024
@@ -2762,6 +2803,13 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sy
 
             lines.append(f"  {DIM}[{gpu.id}]{RESET} {gpu.name:<14} {vram_bar} {mem_str}{ts_label}")
 
+    # ── Flags (bottom of the view) ──────────────────────────────
+    flags = _format_flags(running_models[0].get("all_flags") if running_models else None)
+    if flags:
+        lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
+        lines.extend(flags)
+
+    # Final border + exit hint
     lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append(f"  {DIM}F return to dashboard{RESET}")
     lines.append("")
