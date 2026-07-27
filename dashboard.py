@@ -54,6 +54,7 @@ class GpuStats:
     mem_total_mb: int
     power_w: float
     fan_pct: int
+    vendor: str = ""  # "nvidia" | "amd"
 
 
 def _read_key():
@@ -579,19 +580,29 @@ if HAS_NVIDIA:
 def detect_llama_backend(cmd):
     """Detect the compute backend from a running llama.cpp command.
 
-    Returns: 'cuda' | 'vulkan' | 'rocm' | 'mixed' | 'unknown'
+    Returns: 'cuda' | 'vulkan' | 'rocm' | 'mixed'
     """
-    cmd_lower = cmd.lower()
-    if any(k in cmd_lower for k in ("--device vulkan", "vulkan")):
+    cmd = (cmd or "").lower()
+
+    # Explicit Vulkan
+    if "--device vulkan" in cmd or "ggml-vulkan" in cmd:
         return "vulkan"
-    if any(k in cmd_lower for k in ("rocm", "hip", "--device gpu")):
+
+    # Explicit ROCm / HIP
+    if any(k in cmd for k in ("--device rocm", "--device hip", "ggml-hip", "rocm")):
         return "rocm"
-    # Default: assume cuda for nvidia-only, or check env
+
+    # Explicit CUDA
+    if any(k in cmd for k in ("--device cuda", "ggml-cuda", "cuda")):
+        return "cuda"
+
+    # Fallbacks based on available hardware
     if HAS_NVIDIA and not HAS_AMD:
         return "cuda"
     if HAS_AMD and not HAS_NVIDIA:
         return "rocm"
-    # Both present and no explicit backend → mixed/vulkan is common
+
+    # Both present and no clear signal → treat as mixed (uses low Vulkan-style overhead)
     return "mixed"
 
 
@@ -819,16 +830,77 @@ def build_urls(host):
 
 def short_gpu_name(name):
     """Extract a short GPU name from the full GPU name.
-    NVIDIA: 'NVIDIA GeForce RTX 4070 Ti SUPER' -> '4070 Ti SUPER'
-    AMD: 'AMD Radeon RX 7900 XTX' -> 'RX 7900 XTX' / 'AMD Instinct MI300X' -> 'MI300X'
-    Falls back to the full name if no prefix found."""
-    if "RTX" in name:
+
+    Handles NVIDIA consumer/professional/datacenter, AMD consumer/Instinct.
+    Falls back to the full name if nothing matches.
+    """
+    if not name:
+        return "GPU"
+
+    n = name.upper()
+
+    # NVIDIA consumer
+    if "RTX" in n:
         return name.split("RTX", 1)[-1].strip()
-    if "Radeon RX" in name:
+
+    # NVIDIA professional / workstation
+    if "RTX A6000" in n or "A6000" in n:
+        return "A6000"
+    if "RTX 6000" in n and "ADA" in n:
+        return "6000 Ada"
+    if "RTX PRO 6000" in n or "PRO 6000" in n:
+        return "PRO 6000"
+    if "RTX 5000" in n and "ADA" in n:
+        return "5000 Ada"
+    if "RTX A5000" in n or "A5000" in n:
+        return "A5000"
+    if "RTX A4000" in n or "A4000" in n:
+        return "A4000"
+
+    # NVIDIA data-center / server
+    if "H100" in n:
+        return "H100"
+    if "H200" in n:
+        return "H200"
+    if "A100" in n:
+        return "A100"
+    if "V100" in n:
+        return "V100"
+    if "L40" in n:
+        return "L40S" if "S" in n else "L40"
+    if "L4" in n and "L40" not in n:
+        return "L4"
+    if "A40" in n:
+        return "A40"
+    if "A30" in n:
+        return "A30"
+    if "A10" in n:
+        return "A10"
+    if "T4" in n:
+        return "T4"
+    if "P100" in n:
+        return "P100"
+    if "P40" in n:
+        return "P40"
+
+    # AMD consumer
+    if "RADEON RX" in n:
         return name.split("Radeon RX", 1)[-1].strip()
-    if "Instinct" in name:
-        return name.split("Instinct", 1)[-1].strip()
-    return name
+    if "RX 7900" in n:
+        return "7900 XTX" if "XTX" in n else "7900 XT"
+    if "RX 7800" in n:
+        return "7800 XT"
+    if "RX 9070" in n:
+        return "9070 XT" if "XT" in n else "9070"
+
+    # AMD Instinct
+    if "INSTINCT" in n or any(x in n for x in ("MI300", "MI250", "MI210", "MI100")):
+        for part in name.replace("AMD", "").replace("Instinct", "").split():
+            if part.upper().startswith("MI"):
+                return part
+        return "Instinct"
+
+    return name.split()[-1] if name.split() else name
 
 
 def get_nvidia_smi():
@@ -939,25 +1011,26 @@ def get_amd_smi(gpu_names=None):
 
 
 def get_gpu_stats(gpu_names=None):
-    """Router: get GPU stats from detected backend(s).
-
-    For mixed (heterogeneous) systems, polls both nvidia-smi and amd-smi
-    and merges the GPU list with vendor tags.
-    """
-    if BACKEND == "amd" or BACKEND == "rocm":
-        return get_amd_smi(gpu_names)
-    if BACKEND == "nvidia":
-        return get_nvidia_smi()
-    # Mixed or unknown: poll both and merge
+    """Collect stats from all available SMIs and give every GPU a unique id."""
     gpus = []
+    next_id = 0
+
     if HAS_NVIDIA:
-        nvidia_gpus = get_nvidia_smi()
-        if nvidia_gpus:
-            gpus += nvidia_gpus
+        nvidia = get_nvidia_smi() or []
+        for g in nvidia:
+            g.vendor = "nvidia"
+            g.id = next_id
+            next_id += 1
+            gpus.append(g)
+
     if HAS_AMD:
-        amd_gpus = get_amd_smi(gpu_names)
-        if amd_gpus:
-            gpus += amd_gpus
+        amd = get_amd_smi(gpu_names) or []
+        for g in amd:
+            g.vendor = "amd"
+            g.id = next_id
+            next_id += 1
+            gpus.append(g)
+
     return gpus if gpus else None
 
 # ── Helpers ──────────────────────────────────────
