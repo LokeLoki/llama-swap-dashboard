@@ -2640,6 +2640,12 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append(f"  {BOLD}  llama-swap Dashboard{RESET}  {now}")
     lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
+
+    # Model name — right after header border, same color as border
+    if running_models and running_models[0].get("model_path"):
+        gguf = os.path.basename(running_models[0]["model_path"])
+        lines.append(f"  {BORDER}{gguf}{RESET}")
+
     lines.append("")
 
     if not gpus:
@@ -2816,14 +2822,6 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         f"out: {_fmt_num(total_out)}  "
         f"reqs: {total_reqs}{RESET}"
     )
-
-    # Model filename — inside borders, dim theme color
-    if running_models and running_models[0].get("model_path"):
-        rm = running_models[0]
-        gguf = os.path.basename(rm["model_path"])
-        lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
-        lines.append(f"  {DIM}{PRIMARY}{gguf}{RESET}")
-        lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
 
     # Session token totals
     lines.append(token_line)
