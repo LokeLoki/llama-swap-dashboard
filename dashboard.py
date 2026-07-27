@@ -1243,12 +1243,12 @@ def fetch_running_models(host):
             ctk_match = re.search(r'(?:-ctk|--cache-type-k)\s+(\S+)', cmd)
             if ctk_match:
                 cache_type = ctk_match.group(1).lower()
-            # Parse max context from -c flag
+            # Parse max context from -c flag or --ctx-size (both forms)
             max_context = 0
-            ctx_match = re.search(r'\s-c\s+(\d+)', cmd)
+            ctx_match = re.search(r'\s-c\s+(\d+)|--ctx-size\s*(\d+)', cmd)
             if ctx_match:
                 try:
-                    max_context = int(ctx_match.group(1))
+                    max_context = int(ctx_match.group(1) or ctx_match.group(2))
                 except ValueError:
                     pass
             # Parse --mmproj path from cmd
@@ -1470,10 +1470,10 @@ def detect_local_servers():
                 cache_type = ctk_match.group(1).lower()
 
             max_context = 0
-            ctx_match = re.search(r'\s-c\s+(\d+)', cmd)
+            ctx_match = re.search(r'\s-c\s+(\d+)|--ctx-size\s*(\d+)', cmd)
             if ctx_match:
                 try:
-                    max_context = int(ctx_match.group(1))
+                    max_context = int(ctx_match.group(1) or ctx_match.group(2))
                 except ValueError:
                     pass
 
@@ -1853,9 +1853,11 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
             if clean_key in clean_path:
                 gemma4_geometry = geo
                 break
-    # When dual-geometry is authoritative, dummy arch values are fine (ignored by calc_kv_cache_mb)
+    # When dual-geometry is authoritative, use real layer count for offload math.
+    # kv_heads/head_dim stay 0 (ignored by calc_kv_cache_mb for Gemma 4 dual-geometry).
     if gemma4_geometry is not None:
-        layers, kv_heads, head_dim = 0, 0, 0
+        layers = gemma4_geometry["sliding"]["n"] + gemma4_geometry["global"]["n"]
+        kv_heads, head_dim = 0, 0
     # Get weights size
     weight_mb = active.get("model_file_mb", 0)
     if weight_mb == 0:
@@ -1873,6 +1875,8 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
             input_tokens = latest.get("tokens", {}).get("input_tokens", 0)
             cache_tokens = latest.get("tokens", {}).get("cache_tokens", 0)
             ctx_size = cache_tokens + input_tokens
+        if ctx_size == 0:
+            ctx_size = 4096  # reasonable default for dashboard estimate
     # Get cache bytes
     cache_bytes = get_cache_bytes(active["cache_type"], active["model_quant"])
     # Calculate reserved KV cache (full --ctx-size budget)
