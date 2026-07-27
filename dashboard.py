@@ -2374,14 +2374,14 @@ def render_prompt_log(valid_metrics, running_models=None, num_prompts=3, session
         lines.append(
             f"  {DIM}[{req_time}]{RESET} {BOLD}{model}{RESET} "
             f"{DIM}│{RESET} {DIM}decode:{RESET} {PRIMARY_LIGHT}{decode_tps:.0f}{RESET}{WHITE}t/s{RESET} "
-            f"{DIM}│{RESET} {DIM}prompt:{RESET} {PRIMARY}{prompt_tps:.0f}{RESET}{WHITE}t/s{RESET} "
-            f"{DIM}│{RESET} {DIM}{format_duration(duration)}{RESET}"
+            f"{DIM}│{RESET} {DIM}prompt:{RESET} {PRIMARY}{prompt_tps:.0f}{RESET}{WHITE}t/s{RESET}"
             f"{spec_str}"
         )
         lines.append(
             f"  {DIM}     {RESET}{DIM}in:{RESET}{WHITE}{input_tok}{RESET} "
             f"{DIM}│ {RESET}{DIM}out:{RESET}{WHITE}{output_tok}{RESET} "
-            f"{DIM}│ {RESET}{DIM}cache:{RESET}{WHITE}{cached_tok}{RESET}"
+            f"{DIM}│ {RESET}{DIM}cache:{RESET}{WHITE}{cached_tok}{RESET} "
+            f"{DIM}│ {RESET}{DIM}{format_duration(duration)}{RESET}"
         )
         lines.append(f"  {DIM}{'─' * 56}{RESET}")
 
@@ -2796,7 +2796,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         rm = running_models[0]
         gguf = os.path.basename(rm["model_path"])
         lines.append(f"   {DIM}└─ {gguf}{RESET}")
-    lines.append(f"   {DIM}- / + prompts | F fit view | Ctrl+R reset chart | Ctrl+C quit")
+    lines.append(f"   {DIM}- / + prompts | F fit | Ctrl+R reset | Ctrl+C quit{RESET}")
     lines.append("")
 
     sys.stdout.write("\n".join(lines))
