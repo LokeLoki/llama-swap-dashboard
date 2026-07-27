@@ -1693,10 +1693,6 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         cache_mb = mla_base_mb * (cache_bytes / 2.0)
     else:
         cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, effective_layers, gemma4_kv, gemma4_geometry)
-    # Apply --cache-ram cap if set (limits KV cache on GPU, rest spills to DRAM)
-    cache_ram_cap = active.get("cache_ram_mb", -1)
-    if cache_ram_cap > 0:
-        cache_mb = min(cache_mb, cache_ram_cap)
     # MTP / draft KV cache: depends on whether this is bundled MTP (lightweight)
     # or a separate draft model (full architecture).
     spec_draft_n = active.get("spec_draft_n_max", 0)
@@ -1708,9 +1704,25 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
             # Keep draft_cache_mb near zero — the main cache already accounts for it.
             draft_cache_mb = 0.0
         elif draft_mb > 0:
-            # Separate draft model (--model-draft): full KV cache scaled by spec_draft_n.
-            # The draft model has its own complete architecture.
-            draft_cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, effective_layers, gemma4_kv, gemma4_geometry) * spec_draft_n
+            # Separate draft model (--model-draft): use ITS own architecture.
+            draft_path = active.get("draft_path", "") or active.get("model_path", "")
+            d_layers, d_kv_heads, d_head_dim = None, None, None
+            draft_lower = draft_path.lower()
+            for key, arch in MODEL_ARCHITECTURES.items():
+                clean_key = re.sub(r'[-._]', '', key.lower())
+                clean_draft = re.sub(r'[-._]', '', draft_lower)
+                if clean_key in clean_draft:
+                    d_layers, d_kv_heads, d_head_dim = arch
+                    break
+            if d_layers is not None:
+                draft_cache_mb = calc_kv_cache_mb(
+                    d_layers, d_kv_heads, d_head_dim,
+                    cache_bytes, ctx_size
+                ) * spec_draft_n
+            else:
+                # Unknown draft architecture — scale by weight ratio
+                if weight_mb > 0:
+                    draft_cache_mb = cache_mb * (draft_mb / weight_mb) * spec_draft_n
         else:
             # Bundled MTP (--spec-type draft-mtp): MTP heads are single-layer transformers.
             # Qwen3.6 has 3 MTP layers baked into the GGUF; each head maintains its own KV state.
@@ -1728,6 +1740,10 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     # Scale the parts that move with -ngl: weights + KV cache
     weight_mb = weight_mb * offload_ratio
     cache_mb = cache_mb * offload_ratio
+    # Apply --cache-ram cap AFTER offload scaling (matches llama.cpp order)
+    cache_ram_cap = active.get("cache_ram_mb", -1)
+    if cache_ram_cap > 0:
+        cache_mb = min(cache_mb, cache_ram_cap)
     # mmproj / draft usually stay on GPU — leave unscaled
     # Runtime overhead stays on GPU — leave unscaled
     # Static payload: weights + mmproj + draft + KV cache
