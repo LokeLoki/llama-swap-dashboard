@@ -1303,6 +1303,11 @@ def fetch_running_models(host):
                     pass
             # Parse spec/drafting flags
             has_spec = "--spec-type" in cmd or "--model-draft" in cmd
+            is_dflash = (
+                "draft-dflash" in cmd.lower()
+                or "--spec-type dflash" in cmd.lower()
+                or "dflash" in (cmd.lower().split("--spec-type")[-1][:30] if "--spec-type" in cmd.lower() else "")
+            )
             spec_draft_n_max = 2  # default when --spec-type is set
             sdn_max_match = re.search(r'--spec-draft-n-max\s+(\d+)', cmd)
             if sdn_max_match:
@@ -1359,6 +1364,7 @@ def fetch_running_models(host):
                 "cache_type": cache_type,
                 "max_context": max_context,
                 "has_spec": has_spec,
+                "is_dflash": is_dflash,
                 "mmproj_path": mmproj_path,
                 "mmproj_file_mb": mmproj_file_mb,
                 "draft_path": draft_path,
@@ -1877,11 +1883,20 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         cache_mb = mla_base_mb * (cache_bytes / 2.0)
     else:
         cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, effective_layers, gemma4_kv, gemma4_geometry)
-    # MTP / draft KV cache: depends on whether this is bundled MTP (lightweight)
-    # or a separate draft model (full architecture).
+    # MTP / draft KV cache: depends on whether this is bundled MTP (lightweight),
+    # a separate draft model (full architecture), or DFlash (block-diffusion drafter).
     spec_draft_n = active.get("spec_draft_n_max", 0)
+    is_dflash = active.get("is_dflash", False)
     draft_cache_mb = 0.0
-    if spec_draft_n > 0:
+
+    if is_dflash and draft_mb > 0:
+        # DFlash uses a small block-diffusion drafter.
+        # Its internal state is far smaller than a normal LLM KV cache
+        # of the same weight size. 0.20-0.30x weight is a safe bound;
+        # clamp so it never looks absurd on tiny drafts.
+        draft_cache_mb = min(768.0, max(128.0, draft_mb * 0.25))
+
+    elif spec_draft_n > 0:
         if is_mla:
             # MLA MTP (DeepSeek-V3/R1): MTP heads share the main MLA KV cache.
             # MTP Eagle reuses the same KV slots; MTP Vanilla adds minimal overhead.
