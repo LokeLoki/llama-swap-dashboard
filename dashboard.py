@@ -1704,7 +1704,7 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
             # Keep draft_cache_mb near zero — the main cache already accounts for it.
             draft_cache_mb = 0.0
         elif draft_mb > 0:
-            # Separate draft model (--model-draft): use ITS own architecture.
+            # Separate draft model (--model-draft): one cache, its own architecture.
             draft_path = active.get("draft_path", "") or active.get("model_path", "")
             d_layers, d_kv_heads, d_head_dim = None, None, None
             draft_lower = draft_path.lower()
@@ -1718,11 +1718,11 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
                 draft_cache_mb = calc_kv_cache_mb(
                     d_layers, d_kv_heads, d_head_dim,
                     cache_bytes, ctx_size
-                ) * spec_draft_n
+                )
             else:
                 # Unknown draft architecture — scale by weight ratio
                 if weight_mb > 0:
-                    draft_cache_mb = cache_mb * (draft_mb / weight_mb) * spec_draft_n
+                    draft_cache_mb = cache_mb * (draft_mb / weight_mb)
         else:
             # Bundled MTP (--spec-type draft-mtp): MTP heads are single-layer transformers.
             # Qwen3.6 has 3 MTP layers baked into the GGUF; each head maintains its own KV state.
@@ -1753,8 +1753,8 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     # DeltaNet ≈ 4.5 MB/layer, Mamba-2 ≈ 6 MB/layer — refine with real measurements
     if effective_layers is not None:
         non_kv_layers = max(0, layers - effective_layers)
-        # Only count non-KV layers that are on GPU
-        gpu_non_kv = max(0, min(ngl, layers) - effective_layers)
+        # Layers are interleaved — scale proportionally with offload
+        gpu_non_kv = non_kv_layers * offload_ratio
 
         if "nemotron" in path_lower:
             # Mamba-2 SSM state is larger than DeltaNet on average
