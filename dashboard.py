@@ -2531,14 +2531,15 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None):
     if not main_vram_info:
         lines.append(f"  {DIM}No model loaded{RESET}")
         lines.append("")
-        lines.append(f"  {DIM}Press F to return{RESET}")
+        lines.append(f"  {DIM}F return to dashboard{RESET}")
+        lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
         return lines
 
-    # Identity
+    # Full model filename as display name
     path = (running_models[0].get("model_path") if running_models else "") or ""
-    short = short_model_name(path) if path else "—"
+    model_file = os.path.basename(path) if path else "—"
     quant = f" {identity.quant}" if identity and identity.quant else ""
-    lines.append(f"  {BOLD}{short}{quant}{RESET}")
+    lines.append(f"  {BOLD}{model_file}{quant}{RESET}")
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
 
     w = main_vram_info.weight_mb / 1024
@@ -2576,22 +2577,27 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None):
         lines.append(f"  {DIM}Offload      {RESET}{gpu_l}/{main_vram_info.layers} layers "
                      f"({main_vram_info.offload_ratio*100:.0f}% GPU){RESET}")
 
-    # Tensor split
+    # Tensor split — reuse SMI-style bars + used/total GB
     split = main_vram_info.split_pct
-    if split and any(p > 0 for p in split):
+    if split and gpus and any(p > 0 for p in split):
         lines.append(f"  {DIM}{'─' * 56}{RESET}")
         lines.append(f"  {BOLD}Tensor split{RESET}  {DIM}(-ts){RESET}")
         for i, pct in enumerate(split):
             if pct <= 0:
                 continue
-            name = gpus[i].name if gpus and i < len(gpus) else f"GPU {i}"
-            bar_w = 18
-            filled = int(round(pct / 100 * bar_w))
-            bar = "█" * filled + "░" * (bar_w - filled)
-            lines.append(f"  {DIM}[{i}]{RESET} {name:<14} {pct:5.1f}%  {DIM}{bar}{RESET}")
+            if i < len(gpus):
+                gpu = gpus[i]
+                mem_used = gpu.mem_used_mb
+                mem_total = gpu.mem_total_mb
+                mem_pct = (mem_used / mem_total * 100) if mem_total else 0
+                mem_str = f"{mem_used / 1024:.1f} / {mem_total / 1024:.0f} GB"
+                vram_bar = util_bar(mem_pct, 14)
+                lines.append(f"  {DIM}[{gpu.id}]{RESET} {gpu.name:<14} {vram_bar} {mem_str} {DIM}({pct:.0f}%){RESET}")
+            else:
+                lines.append(f"  {DIM}[{i}]{RESET} GPU {i:<12} {pct:5.1f}%{RESET}")
 
-    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append(f"  {DIM}F return to dashboard{RESET}")
+    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append("")
     return lines
 
