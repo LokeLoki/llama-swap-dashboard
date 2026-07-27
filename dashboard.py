@@ -363,14 +363,10 @@ def _parse_batch_flags(cmd, default_batch=2048, default_ubatch=512):
 
 def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size,
                               model_weight_mb=None, model_name="", backend=None):
-    """Runtime overhead beyond static model+KV. Backend-aware (CUDA vs ROCm/HIP vs Vulkan).
+    """Runtime overhead beyond static model+KV. Backend-aware.
 
     Returns dict with cuda_context_mb, compute_buffer_mb, flash_attn_mb,
     tensor_sync_mb, total_mb.
-
-    Based on llama.cpp logs (issues #23894, #24175, PRs #20595, #23907) for CUDA.
-    ROCm/HIP path calibrated for RDNA3 consumer (7800 XT, 7900, etc.).
-    Vulkan/mixed path uses significantly lower fixed overhead.
     """
     if not gpus or num_active_gpus <= 0:
         return {"cuda_context_mb": 0, "compute_buffer_mb": 0,
@@ -382,13 +378,12 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
         size_factor = model_weight_mb / base_weight_mb
     else:
         size_factor = 1.0
-    size_factor = max(0.25, min(size_factor, 3.5))  # clamp extremes
+    size_factor = max(0.25, min(size_factor, 3.5))
 
     path_lower = (model_name or "").lower()
 
     # Architecture-aware corrections
     if "-a" in path_lower:
-        # MoE: "qwen3.5-35b-a3b" → 3B active of 35B total
         active_match = re.search(r'a(\d+)b', path_lower)
         total_b_match = re.search(r'(\d+)b', path_lower)
         if active_match and total_b_match and model_weight_mb:
@@ -398,36 +393,42 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
                 size_factor = (model_weight_mb * (active_b / total_b)) / base_weight_mb
                 size_factor = max(0.25, min(size_factor, 3.5))
     elif re.search(r'\dx\d+b', path_lower):
-        # Mixtral: "8x7b" → 7B active
         mixtral_match = re.search(r'(\d+)x(\d+)b', path_lower)
         if mixtral_match:
             active_b = int(mixtral_match.group(2))
-            # rough Q4 active weight
             size_factor = max(0.25, min((active_b * 1000.0 / 4.3) / base_weight_mb, 3.5))
     elif any(k in path_lower for k in ("qwen3.6", "qwen3.5-27b", "qwen3.5-9b",
                                         "qwen3.5-8b", "ornith", "bonsai")):
-        # Hybrid linear-attn layers → less dense compute
-        size_factor *= 0.70
+        size_factor *= 0.70   # hybrid linear-attn discount
 
-    # Fallback to module-level BACKEND if caller didn't specify
     if backend is None:
         backend = BACKEND or "cuda"
 
+    # ──────────────────────────────────────────────────────────────
+    # 1. Vulkan / mixed (cross-vendor)
+    # ──────────────────────────────────────────────────────────────
     if backend in ("vulkan", "mixed"):
-        # --- Vulkan / mixed (cross-vendor) ---
-        # Much lower fixed cost — no big CUDA context per GPU
-        fixed_context = 60.0 * num_active_gpus
-        compute_per_gpu = (40.0 + ubatch_size * 0.6) * size_factor
+        fixed_context = 35.0 * num_active_gpus
+
+        compute_per_gpu = (28.0 + ubatch_size * 0.45) * size_factor
         compute_buffer_total = compute_per_gpu * num_active_gpus
-        if ctx_size > 16384:
-            flash_attn_mb = 40.0 * size_factor * num_active_gpus
+
+        if ctx_size > 32768:
+            flash_attn_mb = 35.0 * size_factor * num_active_gpus
+        elif ctx_size > 8192:
+            flash_attn_mb = 18.0 * size_factor * num_active_gpus
         else:
-            flash_attn_mb = 15.0 * size_factor * num_active_gpus
-        sync = 25.0 * size_factor * num_active_gpus if num_active_gpus > 1 else 0.0
+            flash_attn_mb = 8.0 * size_factor * num_active_gpus
+
+        if num_active_gpus > 1:
+            # Cross-vendor pays a bit more for interop / staging
+            sync = (45.0 if backend == "mixed" else 18.0) * size_factor * num_active_gpus
+        else:
+            sync = 0.0
 
         total = fixed_context + compute_buffer_total + flash_attn_mb + sync
         weight_ref = model_weight_mb if model_weight_mb and model_weight_mb > 0 else 16000.0
-        total = min(total, 0.18 * weight_ref + 300.0)
+        total = min(total, 0.12 * weight_ref + 220.0)
 
         return {
             "cuda_context_mb": round(fixed_context, 1),
@@ -437,65 +438,58 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
             "total_mb": round(total, 1),
         }
 
-    is_amd = backend in ("rocm", "amd")
+    # ──────────────────────────────────────────────────────────────
+    # 2. ROCm / HIP
+    # ──────────────────────────────────────────────────────────────
+    if backend in ("rocm", "amd"):
+        fixed_context = 90.0 * num_active_gpus
 
-    if is_amd:
-        # --- ROCm / HIP (RDNA3 consumer: 7800 XT, 7900, etc.) ---
-        # No CUDA context. HIP fixed overhead is lower.
-        fixed_context = 120.0 * num_active_gpus
-
-        # Compute buffer still scales with ubatch; slightly milder than CUDA
-        compute_per_gpu = (60.0 + ubatch_size * 0.85) * size_factor
+        compute_per_gpu = (50.0 + ubatch_size * 0.70) * size_factor
         compute_buffer_total = compute_per_gpu * num_active_gpus
 
-        # FA on HIP: legacy-pool retention of f16 temps with quant KV,
-        # not a clean persistent reservation. Keep a small soft term.
         if ctx_size > 16384:
-            fa = 80.0 * size_factor * num_active_gpus
+            fa = 55.0 * size_factor * num_active_gpus
         else:
-            fa = 30.0 * size_factor * num_active_gpus
+            fa = 22.0 * size_factor * num_active_gpus
 
-        # Multi-GPU sync (rarely used / sequential on ROCm)
-        sync = (40.0 * size_factor * num_active_gpus) if num_active_gpus > 1 else 0.0
+        sync = (30.0 * size_factor * num_active_gpus) if num_active_gpus > 1 else 0.0
 
         total = fixed_context + compute_buffer_total + fa + sync
         weight_ref = model_weight_mb if model_weight_mb and model_weight_mb > 0 else 16000.0
-        total = min(total, 0.22 * weight_ref + 400.0)  # tighter ceiling on AMD
+        total = min(total, 0.18 * weight_ref + 320.0)
 
         return {
-            "cuda_context_mb": round(fixed_context, 1),   # label stays for UI compat
+            "cuda_context_mb": round(fixed_context, 1),
             "compute_buffer_mb": round(compute_buffer_total, 1),
             "flash_attn_mb": round(fa, 1),
             "tensor_sync_mb": round(sync, 1),
             "total_mb": round(total, 1),
         }
 
-    # --- CUDA path (existing tightened numbers) ---
-    cuda_context_total = 280.0 * num_active_gpus
+    # ──────────────────────────────────────────────────────────────
+    # 3. CUDA (tightened)
+    # ──────────────────────────────────────────────────────────────
+    cuda_context_total = 220.0 * num_active_gpus
 
-    # Compute buffer — main variable term, scales with ubatch
-    compute_per_gpu = (80.0 + ubatch_size * 0.95) * size_factor
+    compute_per_gpu = (65.0 + ubatch_size * 0.80) * size_factor
     compute_buffer_total = compute_per_gpu * num_active_gpus
 
-    # Flash-attn / FA scratch (persistent reservation, PR #23907 era)
     if ctx_size > 8192:
-        ctx_factor = min(2.0, max(0.4, ctx_size / 120000.0))
-        flash_attn_mb = 160.0 * ctx_factor * size_factor * num_active_gpus
+        ctx_factor = min(1.8, max(0.35, ctx_size / 130000.0))
+        flash_attn_mb = 130.0 * ctx_factor * size_factor * num_active_gpus
     else:
-        flash_attn_mb = 50.0 * size_factor * num_active_gpus
+        flash_attn_mb = 40.0 * size_factor * num_active_gpus
 
-    # Tensor / pipeline sync — only when multi-GPU
     if num_active_gpus > 1:
-        tensor_sync_mb = 50.0 * size_factor * num_active_gpus
+        tensor_sync_mb = 40.0 * size_factor * num_active_gpus
     else:
         tensor_sync_mb = 0.0
 
     total = (cuda_context_total + compute_buffer_total +
              flash_attn_mb + tensor_sync_mb)
 
-    # Soft ceiling so overhead never dominates small models absurdly
     weight_ref = model_weight_mb if model_weight_mb and model_weight_mb > 0 else 16000.0
-    total = min(total, 0.30 * weight_ref + 600.0)
+    total = min(total, 0.25 * weight_ref + 480.0)
 
     return {
         "cuda_context_mb": round(cuda_context_total, 1),
