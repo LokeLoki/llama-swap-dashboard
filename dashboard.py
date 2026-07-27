@@ -10,7 +10,7 @@ Usage:
 
 Options:
     --host HOST       llama-swap proxy URL (default: auto-detect from dashboard.conf, then localhost:8080)
-    --refresh SECS    Refresh interval in seconds (default: 2)
+    --refresh SECS    Refresh interval in seconds (default: 1)
 """
 
 import dataclasses
@@ -104,7 +104,7 @@ class ModelIdentity:
     quant: str
 
 DEFAULT_HOST = "http://localhost:8080"
-DEFAULT_REFRESH = 2
+DEFAULT_REFRESH = 1
 DEFAULT_AUX_PORT = "11434"
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.conf")
 
