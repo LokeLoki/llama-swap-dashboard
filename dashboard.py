@@ -1869,14 +1869,7 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     # Get reserved context size from --ctx-size (-c flag)
     ctx_size = active.get("max_context", 0)
     if ctx_size == 0:
-        # Fallback: use active tokens from metrics if ctx-size not in cmd
-        if valid_metrics:
-            latest = valid_metrics[-1]
-            input_tokens = latest.get("tokens", {}).get("input_tokens", 0)
-            cache_tokens = latest.get("tokens", {}).get("cache_tokens", 0)
-            ctx_size = cache_tokens + input_tokens
-        if ctx_size == 0:
-            ctx_size = 4096  # reasonable default for dashboard estimate
+        ctx_size = 4096  # stable default when -c / --ctx-size is missing
     # Get cache bytes
     cache_bytes = get_cache_bytes(active["cache_type"], active["model_quant"])
     # Calculate reserved KV cache (full --ctx-size budget)
