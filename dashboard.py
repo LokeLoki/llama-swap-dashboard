@@ -2519,6 +2519,83 @@ def render_main_model_decode(valid_metrics, sys_info, main_vram_info=None):
     return lines, decode_tps
 
 
+def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None):
+    """Full-screen model-fit view. Same chrome language as the main dashboard."""
+    lines = []
+
+    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
+    lines.append(f"  {BOLD}  Model Fit Calculator{RESET}")
+    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
+    lines.append("")
+
+    if not main_vram_info:
+        lines.append(f"  {DIM}No model loaded{RESET}")
+        lines.append("")
+        lines.append(f"  {DIM}Press F to return{RESET}")
+        return lines
+
+    # Identity
+    path = (running_models[0].get("model_path") if running_models else "") or ""
+    short = short_model_name(path) if path else "—"
+    quant = f" {identity.quant}" if identity and identity.quant else ""
+    lines.append(f"  {BOLD}{short}{quant}{RESET}")
+    lines.append(f"  {DIM}{'─' * 56}{RESET}")
+
+    w = main_vram_info.weight_mb / 1024
+    k = main_vram_info.cache_mb / 1024
+    m = main_vram_info.mmproj_mb / 1024
+    d = main_vram_info.draft_mb / 1024
+    static = (main_vram_info.total_mb - main_vram_info.overhead_mb) / 1024
+    rt = main_vram_info.overhead_mb / 1024
+    total = main_vram_info.total_mb / 1024
+
+    lines.append(f"  {DIM}Weights{RESET}      {DIM_CYAN}{w:7.2f}{RESET} {WHITE}GB{RESET}")
+    if k > 0.01:
+        lines.append(f"  {DIM}KV cache{RESET}     {DIM_CYAN}{k:7.2f}{RESET} {WHITE}GB{RESET}  {DIM}({main_vram_info.cache_type}){RESET}")
+    if m > 0.01:
+        lines.append(f"  {DIM}mmproj{RESET}       {DIM_CYAN}{m:7.2f}{RESET} {WHITE}GB{RESET}")
+    if d > 0.01:
+        lines.append(f"  {DIM}draft{RESET}        {DIM_CYAN}{d:7.2f}{RESET} {WHITE}GB{RESET}")
+    lines.append(f"  {DIM}Static{RESET}       {DIM_CYAN}{static:7.2f}{RESET} {WHITE}GB{RESET}")
+    lines.append("")
+    lines.append(f"  {DIM}Runtime{RESET}      {DIM_CYAN}{rt:7.2f}{RESET} {WHITE}GB{RESET}")
+    lines.append(f"  {DIM}  ctx {main_vram_info.cuda_context_mb:.0f}  "
+                 f"comp {main_vram_info.compute_buffer_mb:.0f}  "
+                 f"fa {main_vram_info.flash_attn_mb:.0f}  "
+                 f"sync {main_vram_info.tensor_sync_mb:.0f}{RESET}")
+    lines.append("")
+    lines.append(f"  {BOLD}Total        {DIM_CYAN}{total:7.2f}{RESET} {WHITE}GB{RESET}")
+
+    # Backend label
+    backend_display = (BACKEND or "unknown").upper()
+    lines.append(f"  {DIM}Backend      {RESET}{WHITE}{backend_display}{RESET}")
+
+    # Offload
+    if main_vram_info.offload_ratio < 1.0 and main_vram_info.layers > 0:
+        gpu_l = int(main_vram_info.offload_ratio * main_vram_info.layers)
+        lines.append(f"  {DIM}Offload      {RESET}{gpu_l}/{main_vram_info.layers} layers "
+                     f"({main_vram_info.offload_ratio*100:.0f}% GPU){RESET}")
+
+    # Tensor split
+    split = main_vram_info.split_pct
+    if split and any(p > 0 for p in split):
+        lines.append(f"  {DIM}{'─' * 56}{RESET}")
+        lines.append(f"  {BOLD}Tensor split{RESET}  {DIM}(-ts){RESET}")
+        for i, pct in enumerate(split):
+            if pct <= 0:
+                continue
+            name = gpus[i].name if gpus and i < len(gpus) else f"GPU {i}"
+            bar_w = 18
+            filled = int(round(pct / 100 * bar_w))
+            bar = "█" * filled + "░" * (bar_w - filled)
+            lines.append(f"  {DIM}[{i}]{RESET} {name:<14} {pct:5.1f}%  {DIM}{bar}{RESET}")
+
+    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
+    lines.append(f"  {DIM}F return to dashboard{RESET}")
+    lines.append("")
+    return lines
+
+
 def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, session_totals, identity=None, host=None, aux_port=None, running_models=None, num_prompts=3, spinner_frame=0, ollama_active=False):
     """Render the dashboard."""
     sys.stdout.write("\033[H\033[0J")
@@ -2713,7 +2790,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         rm = running_models[0]
         gguf = os.path.basename(rm["model_path"])
         lines.append(f"   {DIM}└─ {gguf}{RESET}")
-    lines.append(f"   {DIM}- / + prompts | Ctrl+R reset chart | Ctrl+C quit")
+    lines.append(f"   {DIM}- / + prompts | F fit view | Ctrl+R reset chart | Ctrl+C quit")
     lines.append("")
 
     sys.stdout.write("\n".join(lines))
@@ -2740,6 +2817,7 @@ def main():
     chart_metrics = []  # Metrics used for the chart (resettable via Ctrl+R)
     spinner_frame = 0  # Animation frame for aux indicator
     ollama_active = False  # Cached Ollama active state
+    fit_mode = False  # Toggle for full-screen VRAM fit calculator
     gpus = []
     sys_info = {}
     aux_info = None
@@ -2825,8 +2903,17 @@ def main():
     
             buckets = get_metrics_by_bucket(chart_metrics)
             identity = get_active_model_identity(valid, config_yaml)
-            render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
-    
+
+            if fit_mode:
+                # Full-screen VRAM fit calculator
+                main_vram_info = get_main_model_vram(running_models, valid, gpus) if running_models else None
+                fit_lines = render_vram_fit(main_vram_info, running_models, gpus, identity)
+                sys.stdout.write("\033[H\033[0J")
+                sys.stdout.write("\n".join(fit_lines))
+                sys.stdout.flush()
+            else:
+                render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
+
             # Increment spinner frame for next cycle
             spinner_frame += 1
     
@@ -2846,6 +2933,8 @@ def main():
                         num_prompts = max(1, num_prompts - 1)
                     elif key in ("\x12", "c", "r"):
                         chart_metrics = []
+                    elif key in ("f", "F"):
+                        fit_mode = not fit_mode
                     # Re-render instantly with cached data
                     buckets = get_metrics_by_bucket(chart_metrics)
                     identity = get_active_model_identity(valid, config_yaml)
