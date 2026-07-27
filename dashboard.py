@@ -1417,8 +1417,9 @@ def fetch_running_models(host):
             all_flags = {}
 
             SHORT_WITH_VALUE = {
-                "c", "b", "ub", "ngl", "t", "tb", "n", "ts",
+                "c", "b", "ub", "ngl", "t", "n", "np", "ts",
                 "m", "h", "p", "ctk", "ctv",
+                "fa", "sm", "cb", "tb", "td", "tbd", "rea", "fit", "fitt", "md",
             }
 
             BOOLEAN_FLAGS = {
@@ -1427,6 +1428,7 @@ def fetch_running_models(host):
                 "jinja", "special", "no-special", "log-disable", "verbose",
                 "timing-outputs", "no-kv-offload", "no-warmup", "warmup",
                 "check-tensors", "offline", "context-shift", "no-context-shift",
+                "reasoning", "fit", "swa-full", "repack", "no-repack",
             }
 
             def _clean_val(v):
@@ -1438,7 +1440,14 @@ def fetch_running_models(host):
                 return v
 
             def _is_bool_token(tok):
-                return tok.lower() in ("on", "off", "true", "false", "1", "0", "yes", "no")
+                return tok.lower() in ("on", "off", "true", "false", "1", "0", "yes", "no", "auto")
+
+            def _is_numeric(val):
+                try:
+                    float(val)
+                    return True
+                except (ValueError, TypeError):
+                    return False
 
             # Tokenize respecting quotes
             tokens = []
@@ -1466,7 +1475,7 @@ def fetch_running_models(host):
 
                     if j + 1 < len(tokens):
                         nxt = tokens[j + 1]
-                        if not nxt.startswith("-") or _is_bool_token(nxt):
+                        if not nxt.startswith("-") or _is_bool_token(nxt) or _is_numeric(nxt):
                             val = _clean_val(nxt)
                             if base in BOOLEAN_FLAGS or base.startswith("no-"):
                                 if val is None or val.lower() in ("on", "true", "1", "yes"):
@@ -1487,14 +1496,24 @@ def fetch_running_models(host):
                     j += 1
                     continue
 
-                # Short flag: -c, -b, etc.
-                if tok.startswith("-") and len(tok) >= 2:
+                # Short flag: -c, -ngl, -fa, -np, -n, etc.
+                if tok.startswith("-") and not tok.startswith("--") and len(tok) >= 2:
                     name = tok
-                    key = tok.lstrip("-")
+                    key = tok.lstrip("-").lower()
+
+                    # Trinary flags: bare = True, or take on/off/auto
+                    if key in ("fa", "rea", "fit"):
+                        if j + 1 < len(tokens) and tokens[j+1].lower() in ("on", "off", "auto", "true", "false", "1", "0"):
+                            all_flags[name] = tokens[j+1].lower()
+                            j += 2
+                        else:
+                            all_flags[name] = True
+                            j += 1
+                        continue
 
                     if key in SHORT_WITH_VALUE and j + 1 < len(tokens):
                         nxt = tokens[j + 1]
-                        if not nxt.startswith("-") or _is_bool_token(nxt):
+                        if not nxt.startswith("-") or _is_bool_token(nxt) or _is_numeric(nxt):
                             all_flags[name] = _clean_val(nxt)
                             j += 2
                             continue
@@ -2704,28 +2723,36 @@ def _format_flags(all_flags):
 
     groups = [
         ("Model", [
-            "-m", "--model", "--mmproj", "--model-draft",
+            "-m", "--model", "--mmproj", "-md", "--model-draft",
         ]),
         ("Context & Cache", [
-            "-c", "--ctx-size", "-ctk", "--cache-type-k",
-            "-ctv", "--cache-type-v", "--cache-ram",
-            "--no-kv-offload",
+            "-c", "--ctx-size", "-n", "--n-predict", "--predict",
+            "-ctk", "--cache-type-k", "-ctv", "--cache-type-v",
+            "--cache-ram", "--no-kv-offload",
         ]),
         ("Offload & Split", [
             "-ngl", "--n-gpu-layers", "--gpu-layers",
-            "-ts", "--tensor-split",
+            "-ts", "--tensor-split", "-sm", "--split-mode",
         ]),
         ("Batching", [
             "-b", "--batch-size", "-ub", "--ubatch-size",
-            "--parallel", "--cont-batching",
+            "-np", "--parallel", "-cb", "--cont-batching",
         ]),
-        ("Sampling / Spec", [
+        ("Threads", [
+            "-t", "-tb", "-td", "-tbd",
+        ]),
+        ("Flash & Spec", [
+            "-fa", "--flash-attn",
             "--spec-type", "--spec-draft-n-max",
             "--draft", "--model-draft",
-            "--reasoning-budget", "--context-shift",
+        ]),
+        ("Reasoning", [
+            "-rea", "--reasoning", "--reasoning-budget",
+            "--context-shift",
         ]),
         ("Memory", [
             "--mlock", "--mmap", "--no-mmap",
+            "-fit", "-fitt",
         ]),
         ("Server", [
             "--host", "--port", "--metrics",
