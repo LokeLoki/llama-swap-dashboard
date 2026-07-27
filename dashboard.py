@@ -1035,9 +1035,11 @@ def fetch_running_models(host):
         running = []
         for item in data.get("running", []):
             cmd = item.get("cmd", "")
-            # Parse model path from -m "path/to/model.gguf"
+            # Parse model path from -m "path/to/model.gguf" or -m path/to/model.gguf
             model_path = ""
             m_match = re.search(r'-m\s+"([^"]+\.gguf)"', cmd)
+            if not m_match:
+                m_match = re.search(r'-m\s+(\S+\.gguf)', cmd)
             if m_match:
                 model_path = m_match.group(1)
             # Parse quant from model path
@@ -1067,6 +1069,8 @@ def fetch_running_models(host):
             # Parse --mmproj path from cmd
             mmproj_path = ""
             mmproj_match = re.search(r'--mmproj\s+"([^"]+\.gguf)"', cmd)
+            if not mmproj_match:
+                mmproj_match = re.search(r'--mmproj\s+(\S+\.gguf)', cmd)
             if mmproj_match:
                 mmproj_path = mmproj_match.group(1)
             # Get mmproj file size — sanitized path
@@ -1081,6 +1085,8 @@ def fetch_running_models(host):
             # Parse --model-draft path from cmd
             draft_path = ""
             draft_match = re.search(r'--model-draft\s+"([^"]+\.gguf)"', cmd)
+            if not draft_match:
+                draft_match = re.search(r'--model-draft\s+(\S+\.gguf)', cmd)
             if draft_match:
                 draft_path = draft_match.group(1)
             # Get draft file size — sanitized path
@@ -1939,9 +1945,11 @@ def _parse_yaml_models_simple(yaml_path):
                 if model_match:
                     current_model = model_match.group(1)
                     continue
-                # Extract -m "path/to/model.gguf"
+                # Extract -m "path/to/model.gguf" or -m path/to/model.gguf
                 if current_model and "-m" in stripped:
                     m_match = re.search(r'-m\s+"([^"]+\.gguf)"', stripped)
+                    if not m_match:
+                        m_match = re.search(r'-m\s+(\S+\.gguf)', stripped)
                     if m_match:
                         model_map[current_model] = m_match.group(1)
                         current_model = None
@@ -2522,7 +2530,6 @@ def main():
 
     # Incremental state
     session_totals = {"in": 0, "out": 0, "reqs": 0, "cache": 0}
-    prev_count = 0
     prev_model = None
     num_prompts = 3  # Default: show last 3 prompts
     chart_metrics = []  # Metrics used for the chart (resettable via Ctrl+R)
@@ -2584,19 +2591,15 @@ def main():
     
             valid = filter_valid(metrics)
     
-            # Detect new metrics since last render
-            # Handle server-side window rotation (audit fix #2)
-            if len(valid) < prev_count:
-                prev_count = 0
-                new_valid = valid
-            else:
-                new_valid = valid[prev_count:]
+            # Detect new metrics since last render — timestamp-based
+            # Survives both shrinking windows and fixed-size ring buffers
+            last_ts = chart_metrics[-1].get("timestamp", "") if chart_metrics else ""
+            new_valid = [m for m in valid if m.get("timestamp", "") > last_ts]
             current_model = valid[-1].get("model") if valid else None
-    
+
             # Reset on model switch
             if current_model != prev_model:
                 session_totals = {"in": 0, "out": 0, "reqs": 0, "cache": 0}
-                prev_count = 0
                 new_valid = valid
                 chart_metrics = []  # Reset chart on model switch too
     
@@ -2607,9 +2610,8 @@ def main():
                 session_totals["cache"] += m.get("tokens", {}).get("cache_tokens", 0)
                 session_totals["reqs"] += 1
     
-            prev_count = len(valid)
             prev_model = current_model
-    
+
             # Accumulate new metrics for the chart
             chart_metrics.extend(new_valid)
             # Cap to prevent unbounded growth (audit fix #1)
