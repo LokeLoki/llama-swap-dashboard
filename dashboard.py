@@ -2028,9 +2028,33 @@ def get_metrics_by_bucket(valid_metrics):
 
     # Sort by bucket boundary
     sorted_buckets = sorted(result.values(), key=lambda x: x["bucket_key"])
-    return {
-        s["bucket_key"]: s for s in sorted_buckets
-    }
+
+    # Filter: suppress thin high-context buckets that show misleadingly fast p90s.
+    # Keeps the visual "slower as context grows" story intact by dropping outliers
+    # where a sparse sample set produces a big upward p90 jump.
+    filtered = {}
+    prev_p90 = None
+    prev_count = 0
+
+    for bucket_data in sorted_buckets:
+        count = bucket_data.get("count", 0)
+        p90 = bucket_data.get("decode_p90", 0)
+        bucket_key = bucket_data["bucket_key"]
+
+        if prev_p90 is not None and prev_count >= 4:
+            # Meaningful jump threshold: p90 is >10% slower than previous
+            # AND this bucket has fewer samples → likely unreliable
+            if p90 > prev_p90 * 1.10 and count < prev_count:
+                continue
+
+        filtered[bucket_key] = bucket_data
+
+        # Only update reference when the bucket has solid sample count
+        if count >= 4:
+            prev_p90 = p90
+            prev_count = count
+
+    return filtered
 
 
 # ── Rendering ──────────────────────────────────────────
