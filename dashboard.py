@@ -2965,9 +2965,15 @@ def main():
             sleep_time = max(0.1, refresh - elapsed)
             wait_end = time.time() + sleep_time
             while time.time() < wait_end:
-                key = _read_key()
+                # Drain every pending key — only the last one counts
+                key = None
+                while True:
+                    k = _read_key()
+                    if k is None:
+                        break
+                    key = k
+
                 if key:
-                    # Normalize: Unix returns str, Windows returns bytes
                     if isinstance(key, bytes):
                         key = key.decode(errors="ignore")
                     if key in ("+", "=", "'"):
@@ -2978,13 +2984,21 @@ def main():
                         chart_metrics = []
                     elif key in ("f", "F"):
                         fit_mode = not fit_mode
-                    # Re-render instantly with cached data
+
+                    # Re-render with the correct view
                     buckets = get_metrics_by_bucket(chart_metrics)
                     identity = get_active_model_identity(valid, config_yaml)
-                    render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
+                    if fit_mode:
+                        main_vram_info = get_main_model_vram(running_models, valid, gpus) if running_models else None
+                        fit_lines = render_vram_fit(main_vram_info, running_models, gpus, identity, sys_info)
+                        sys.stdout.write("\033[H\033[0J")
+                        sys.stdout.write("\n".join(fit_lines))
+                        sys.stdout.flush()
+                    else:
+                        render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
                     spinner_frame += 1
                     break
-                time.sleep(0.02)
+                time.sleep(0.015)
 
     finally:
         # Restore Unix terminal settings (audit fix #3)
