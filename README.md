@@ -81,24 +81,23 @@ The dashboard builds an estimate from:
 
 Architecture tables cover the common families (Qwen, Llama, Gemma, DeepSeek, Laguna, Nemotron, Mixtral, and others). Unknown models fall back to live SMI readings instead of a calculated estimate.
 
-The estimate is useful for planning and for understanding how flags affect memory. **Always treat live `nvidia-smi` / `amd-smi` numbers as ground truth.**
+The estimate is useful for planning and for understanding how flags affect memory. **Always treat live `nvidia-smi` / `amd-smi` numbers as truth.**
 
 ## Keyboard
 
 | Key            | Action                        |
 |----------------|-------------------------------|
 | **F**          | Toggle Model Fit Calculator   |
-| **+** / **=**  | Show more recent prompts     |
-| **-** / **_**  | Show fewer recent prompts    |
-| **Ctrl+R** / **r** / **c** | Reset chart history |
+| **+** | Show more recent prompts     |
+| **-** | Show fewer recent prompts    |
+| **Ctrl+R**     | Reset chart history |
 | **Ctrl+C**     | Exit                          |
 
 ## Notes
 
 - Works with both llama-swap and plain llama-server
 - Multi-GPU and heterogeneous (NVIDIA + AMD) setups are supported
-- Speculative decoding modes (MTP, draft models, DFlash, etc.) are detected when present
-- New model architectures may need table entries for best estimate accuracy
+- New model architectures may need table entries for best estimate accuracy.
 
 ## License
 
