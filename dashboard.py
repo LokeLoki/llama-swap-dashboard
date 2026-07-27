@@ -2763,7 +2763,29 @@ def _format_flags(all_flags):
     lines = []
     used = set()
 
+    def _clean_kwargs_value(val):
+        """Turn the messy chat-template-kwargs into a clean readable form."""
+        if not val or not isinstance(val, str):
+            return val
+        s = val.strip().strip("'\"")
+        s = s.replace('\\"', '"').replace("\\'", "'").replace("\\\\", "\\")
+        m = re.search(r'["\']?(\w+)["\']?\s*:\s*(true|false|\d+|"[^"]*"|\'[^\']*\')', s, re.IGNORECASE)
+        if m:
+            key = m.group(1)
+            raw = m.group(2)
+            if raw.lower() == "true":
+                return f"{key}: true"
+            if raw.lower() == "false":
+                return f"{key}: false"
+            clean = raw.strip('"\'')
+            return f"{key}: {clean}"
+        s = re.sub(r'[{}\[\]\\"]+', ' ', s)
+        s = re.sub(r'\s+', ' ', s).strip()
+        return s[:40] + ("..." if len(s) > 40 else "")
+
     def fmt(k, v):
+        if k in ("--chat-template-kwargs", "-chat-template-kwargs"):
+            v = _clean_kwargs_value(v)
         if v is True:
             return f"  {DIM}{k}{RESET}"
         if v is False:
