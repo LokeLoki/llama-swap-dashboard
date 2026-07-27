@@ -616,12 +616,11 @@ def detect_llama_backend(cmd):
         return "cuda"
 
     # Fallbacks based on available hardware
-    if HAS_NVIDIA and not HAS_AMD:
+    if HAS_NVIDIA:
         return "cuda"
-    if HAS_AMD and not HAS_NVIDIA:
+    if HAS_AMD:
         return "rocm"
 
-    # Both present and no clear signal → treat as mixed (uses low Vulkan-style overhead)
     return "mixed"
 
 
@@ -1204,7 +1203,9 @@ def get_ollama_active_amd():
 
 def get_ollama_active():
     """Router: check if Ollama is actively using the GPU."""
-    if BACKEND == "amd" or BACKEND == "mixed":
+    if BACKEND == "mixed":
+        return get_ollama_active_amd() or get_ollama_active_nv()
+    elif BACKEND == "amd":
         return get_ollama_active_amd()
     return get_ollama_active_nv()
 
@@ -1982,12 +1983,6 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
             num_active_gpus = sum(1 for s in shares if s > 0)
         except (ValueError, IndexError):
             pass
-    # If multi-gpu via ts but no explicit shares, use GPU count from stats
-    if gpus and num_active_gpus == 1:
-        # Check if multiple GPUs have significant memory usage (model loaded on them)
-        active_gpu_count = sum(1 for g in gpus if g.mem_used_mb > 500)
-        if active_gpu_count > 1:
-            num_active_gpus = active_gpu_count
     overhead = estimate_runtime_overhead(
         gpus, batch_size, ubatch_size, num_active_gpus, ctx_size,
         weight_mb, active["model_path"],
