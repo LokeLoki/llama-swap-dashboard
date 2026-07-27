@@ -2620,6 +2620,50 @@ def render_main_model_decode(valid_metrics, sys_info, main_vram_info=None):
     return lines, decode_tps
 
 
+def _format_flags(all_flags):
+    """Return neat one-flag-per-line strings for the fit view."""
+    if not all_flags:
+        return []
+
+    priority = [
+        "-c", "--ctx-size",
+        "-ngl", "--n-gpu-layers", "--gpu-layers",
+        "-ctk", "--cache-type-k",
+        "-ctv", "--cache-type-v",
+        "-ts", "--tensor-split",
+        "-b", "--batch-size",
+        "-ub", "--ubatch-size",
+        "--mmproj",
+        "--model-draft",
+        "--flash-attn",
+        "--parallel",
+        "--cache-ram",
+    ]
+
+    lines = []
+    seen = set()
+
+    for key in priority:
+        if key in all_flags:
+            val = all_flags[key]
+            if val is None:
+                lines.append(f"  {DIM}{key}{RESET}")
+            else:
+                lines.append(f"  {DIM}{key} {val}{RESET}")
+            seen.add(key)
+
+    skip = {"llama-server", "llama-server.exe", "-m", "--model"}
+    for key, val in sorted(all_flags.items()):
+        if key in seen or key in skip:
+            continue
+        if val is None:
+            lines.append(f"  {DIM}{key}{RESET}")
+        else:
+            lines.append(f"  {DIM}{key} {val}{RESET}")
+
+    return lines
+
+
 def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sys_info=None):
     """Full-screen model-fit view. Same chrome language as the main dashboard."""
     lines = []
@@ -2643,7 +2687,14 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sy
     lines.append(f"  {BOLD}{short}{quant}{RESET}")
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
 
-    # ── Model breakdown ───────────────────────────────────────
+    # ── Flags (one per line, dim) ──────────────────────────────
+    all_flags = running_models[0].get("all_flags") if running_models else None
+    flags = _format_flags(all_flags)
+    if flags:
+        lines.extend(flags)
+        lines.append(f"  {DIM}{'─' * 56}{RESET}")
+
+    # ── Model breakdown ────────────────────────────────────────
     w = main_vram_info.weight_mb / 1024
     k = main_vram_info.cache_mb / 1024
     m = main_vram_info.mmproj_mb / 1024
