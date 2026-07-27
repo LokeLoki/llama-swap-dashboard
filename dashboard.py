@@ -1201,6 +1201,65 @@ def get_ollama_active_amd():
     return False
 
 
+def get_inference_gpu_indices():
+    """Return a set of GPU indices that have a real inference process.
+    Ignores display/desktop compositor memory.
+    Works on NVIDIA, AMD, and mixed systems.
+    """
+    active = set()
+    inference_names = ("llama", "ollama", "vllm", "text-generation", "exllama", "kobold", "tabby")
+
+    # ── NVIDIA ──────────────────────────────────────────────
+    if HAS_NVIDIA:
+        try:
+            uuid_to_idx = {}
+            list_result = subprocess.run(
+                ["nvidia-smi", "--query-gpu=index,uuid", "--format=csv,noheader"],
+                capture_output=True, text=True, timeout=2,
+            )
+            for line in list_result.stdout.strip().splitlines():
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) >= 2:
+                    uuid_to_idx[parts[1]] = int(parts[0])
+
+            apps = subprocess.run(
+                ["nvidia-smi", "--query-compute-apps=gpu_uuid,process_name,used_gpu_memory",
+                 "--format=csv,noheader,nounits"],
+                capture_output=True, text=True, timeout=2,
+            )
+            for line in apps.stdout.strip().splitlines():
+                parts = [p.strip() for p in line.split(",")]
+                if len(parts) < 3:
+                    continue
+                uuid, name, mem = parts[0], parts[1].lower(), parts[2]
+                if any(k in name for k in inference_names) and float(mem) > 800:
+                    idx = uuid_to_idx.get(uuid)
+                    if idx is not None:
+                        active.add(idx)
+        except Exception:
+            pass
+
+    # ── AMD ─────────────────────────────────────────────────
+    if HAS_AMD:
+        try:
+            result = subprocess.run(
+                ["amd-smi", "process", "--json"],
+                capture_output=True, text=True, timeout=2,
+            )
+            data = json.loads(result.stdout)
+            nvidia_count = sum(1 for g in (get_gpu_stats() or []) if g.vendor == "nvidia")
+            for gd in data.get("gpu_data", []):
+                gpu_idx = gd.get("gpu", 0)
+                for proc in gd.get("processes", []):
+                    name = (proc.get("name") or "").lower()
+                    if any(k in name for k in inference_names):
+                        active.add(gpu_idx + nvidia_count)
+        except Exception:
+            pass
+
+    return active
+
+
 def get_ollama_active():
     """Router: check if Ollama is actively using the GPU."""
     if BACKEND == "mixed":
@@ -1983,6 +2042,11 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
             num_active_gpus = sum(1 for s in shares if s > 0)
         except (ValueError, IndexError):
             pass
+    # No explicit -ts → check which GPUs actually have inference processes
+    if num_active_gpus == 1:
+        inference_gpus = get_inference_gpu_indices()
+        if len(inference_gpus) >= 1:
+            num_active_gpus = len(inference_gpus)
     overhead = estimate_runtime_overhead(
         gpus, batch_size, ubatch_size, num_active_gpus, ctx_size,
         weight_mb, active["model_path"],
