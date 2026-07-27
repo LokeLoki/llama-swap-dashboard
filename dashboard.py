@@ -2041,7 +2041,8 @@ def get_metrics_by_bucket(valid_metrics):
         p90 = bucket_data.get("decode_p90", 0)
         bucket_key = bucket_data["bucket_key"]
 
-        if prev_p90 is not None and prev_count >= 4:
+        # Only apply the filter to buckets above 60k — lower buckets always show
+        if prev_p90 is not None and prev_count >= 4 and bucket_key > 60000:
             # Meaningful jump threshold: p90 is >10% slower than previous
             # AND this bucket has fewer samples → likely unreliable
             if p90 > prev_p90 * 1.10 and count < prev_count:
