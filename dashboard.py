@@ -2817,15 +2817,16 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
         f"reqs: {total_reqs}{RESET}"
     )
 
-    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
-    lines.append(token_line)
-
-    # Model filename — between borders, in backend theme color
+    # Model filename — inside borders, dim theme color
     if running_models and running_models[0].get("model_path"):
         rm = running_models[0]
         gguf = os.path.basename(rm["model_path"])
-        lines.append(f"  {PRIMARY}{gguf}{RESET}")
-    lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
+        lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
+        lines.append(f"  {DIM}{PRIMARY}{gguf}{RESET}")
+        lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
+
+    # Session token totals
+    lines.append(token_line)
     lines.append(f"   {DIM}- / + prompts | F fit | Ctrl+R reset | Ctrl+C quit{RESET}")
     lines.append("")
 
