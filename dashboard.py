@@ -128,6 +128,19 @@ QUANT_PATTERN = re.compile(
     re.IGNORECASE,
 )
 
+# Pre-compiled regexes for path/flag parsing (avoids recompile overhead per cycle)
+RE_MODEL_PATH_Q = re.compile(r'-m\s+"([^"]+\.gguf)"')
+RE_MODEL_PATH_UQ = re.compile(r'-m\s+(\S+\.gguf)')
+RE_MMPROJ_PATH_Q = re.compile(r'--mmproj\s+"([^"]+\.gguf)"')
+RE_MMPROJ_PATH_UQ = re.compile(r'--mmproj\s+(\S+\.gguf)')
+RE_DRAFT_PATH_Q = re.compile(r'--model-draft\s+"([^"]+\.gguf)"')
+RE_DRAFT_PATH_UQ = re.compile(r'--model-draft\s+(\S+\.gguf)')
+RE_CACHE_RAM = re.compile(r'--cache-ram\s+(\d+)')
+RE_TENSOR_SPLIT = re.compile(r'(?:-ts|--tensor-split)\s+([\d.]+(?:,[\d.]+)*)')
+
+# File size cache — model files don't change while the process is alive
+_FILE_SIZE_CACHE = {}
+
 TOKEN_BUCKETS = [
     ("0-10k", 0, 9999),
     ("10-20k", 10000, 19999),
@@ -616,6 +629,19 @@ def is_safe_host(url: str) -> bool:
         return False
 
 
+def _cached_file_size(path):
+    """Get file size in MB, cached by resolved path."""
+    cached = _FILE_SIZE_CACHE.get(path)
+    if cached is not None:
+        return cached
+    try:
+        size_mb = os.path.getsize(path) / (1024 * 1024)
+    except OSError:
+        size_mb = 0
+    _FILE_SIZE_CACHE[path] = size_mb
+    return size_mb
+
+
 def safe_model_path(raw_path: str) -> str | None:
     """Return a sanitized absolute path to a .gguf file, or None if unsafe.
     Rejects path traversal (..), blocks access outside the script's directory,
@@ -1038,9 +1064,9 @@ def fetch_running_models(host):
             cmd = item.get("cmd", "")
             # Parse model path from -m "path/to/model.gguf" or -m path/to/model.gguf
             model_path = ""
-            m_match = re.search(r'-m\s+"([^"]+\.gguf)"', cmd)
+            m_match = RE_MODEL_PATH_Q.search(cmd)
             if not m_match:
-                m_match = re.search(r'-m\s+(\S+\.gguf)', cmd)
+                m_match = RE_MODEL_PATH_UQ.search(cmd)
             if m_match:
                 model_path = m_match.group(1)
             # Parse quant from model path
@@ -1069,9 +1095,9 @@ def fetch_running_models(host):
                     pass
             # Parse --mmproj path from cmd
             mmproj_path = ""
-            mmproj_match = re.search(r'--mmproj\s+"([^"]+\.gguf)"', cmd)
+            mmproj_match = RE_MMPROJ_PATH_Q.search(cmd)
             if not mmproj_match:
-                mmproj_match = re.search(r'--mmproj\s+(\S+\.gguf)', cmd)
+                mmproj_match = RE_MMPROJ_PATH_UQ.search(cmd)
             if mmproj_match:
                 mmproj_path = mmproj_match.group(1)
             # Get mmproj file size — sanitized path
@@ -1085,9 +1111,9 @@ def fetch_running_models(host):
                         pass
             # Parse --model-draft path from cmd
             draft_path = ""
-            draft_match = re.search(r'--model-draft\s+"([^"]+\.gguf)"', cmd)
+            draft_match = RE_DRAFT_PATH_Q.search(cmd)
             if not draft_match:
-                draft_match = re.search(r'--model-draft\s+(\S+\.gguf)', cmd)
+                draft_match = RE_DRAFT_PATH_UQ.search(cmd)
             if draft_match:
                 draft_path = draft_match.group(1)
             # Get draft file size — sanitized path
@@ -1101,7 +1127,7 @@ def fetch_running_models(host):
                         pass
             # Parse --cache-ram cap (in MB)
             cache_ram_mb = -1  # -1 = not set (unlimited on GPU)
-            cram_match = re.search(r'--cache-ram\s+(\d+)', cmd)
+            cram_match = RE_CACHE_RAM.search(cmd)
             if cram_match:
                 try:
                     cache_ram_mb = int(cram_match.group(1))
@@ -1144,7 +1170,7 @@ def fetch_running_models(host):
                     ngl = 999  # treat -1 as "all layers on GPU"
             # Parse -ts / --tensor-split (multi-GPU proportional split)
             split_pct = None
-            ts_match = re.search(r'(?:-ts|--tensor-split)\s+([\d.]+(?:,[\d.]+)*)', cmd)
+            ts_match = RE_TENSOR_SPLIT.search(cmd)
             if ts_match:
                 raw = ts_match.group(1).split(',')
                 split_ratios = [float(v) for v in raw]
@@ -1304,7 +1330,7 @@ def detect_local_servers():
                     ngl = 999
 
             split_pct = None
-            ts_match = re.search(r'(?:-ts|--tensor-split)\s+([\d.]+(?:,[\d.]+)*)', cmd)
+            ts_match = RE_TENSOR_SPLIT.search(cmd)
             if ts_match:
                 raw = ts_match.group(1).split(',')
                 split_ratios = [float(v) for v in raw]
@@ -1319,9 +1345,9 @@ def detect_local_servers():
 
             # Parse --mmproj path from cmd
             mmproj_path = ""
-            mmproj_match = re.search(r'--mmproj\s+"([^"]+\.gguf)"', cmd)
+            mmproj_match = RE_MMPROJ_PATH_Q.search(cmd)
             if not mmproj_match:
-                mmproj_match = re.search(r'--mmproj\s+(\S+\.gguf)', cmd)
+                mmproj_match = RE_MMPROJ_PATH_UQ.search(cmd)
             if mmproj_match:
                 mmproj_path = mmproj_match.group(1)
             mmproj_file_mb = 0
@@ -1335,9 +1361,9 @@ def detect_local_servers():
 
             # Parse --model-draft path from cmd
             draft_path = ""
-            draft_match = re.search(r'--model-draft\s+"([^"]+\.gguf)"', cmd)
+            draft_match = RE_DRAFT_PATH_Q.search(cmd)
             if not draft_match:
-                draft_match = re.search(r'--model-draft\s+(\S+\.gguf)', cmd)
+                draft_match = RE_DRAFT_PATH_UQ.search(cmd)
             if draft_match:
                 draft_path = draft_match.group(1)
             draft_file_mb = 0
@@ -1768,7 +1794,7 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     # Determine number of active GPUs (those with tensor split > 0)
     # Parse -ts flag to find how many GPUs have non-zero shares
     num_active_gpus = 1  # minimum: single GPU
-    ts_match = re.search(r'(?<!\w)-ts\s+([\d.,]+)', cmd_str := active.get("cmd", ""))
+    ts_match = RE_TENSOR_SPLIT.search(cmd_str := active.get("cmd", ""))
     if ts_match:
         try:
             shares = [float(x) for x in ts_match.group(1).split(",")]
@@ -1964,9 +1990,9 @@ def _parse_yaml_models_simple(yaml_path):
                     continue
                 # Extract -m "path/to/model.gguf" or -m path/to/model.gguf
                 if current_model and "-m" in stripped:
-                    m_match = re.search(r'-m\s+"([^"]+\.gguf)"', stripped)
+                    m_match = RE_MODEL_PATH_Q.search(stripped)
                     if not m_match:
-                        m_match = re.search(r'-m\s+(\S+\.gguf)', stripped)
+                        m_match = RE_MODEL_PATH_UQ.search(stripped)
                     if m_match:
                         model_map[current_model] = m_match.group(1)
                         current_model = None
