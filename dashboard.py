@@ -361,14 +361,15 @@ def _parse_batch_flags(cmd, default_batch=2048, default_ubatch=512):
 
 
 def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size,
-                              model_weight_mb=None, model_name=""):
-    """Runtime overhead beyond static model+KV. Backend-aware (CUDA vs ROCm/HIP).
+                              model_weight_mb=None, model_name="", backend=None):
+    """Runtime overhead beyond static model+KV. Backend-aware (CUDA vs ROCm/HIP vs Vulkan).
 
     Returns dict with cuda_context_mb, compute_buffer_mb, flash_attn_mb,
     tensor_sync_mb, total_mb.
 
     Based on llama.cpp logs (issues #23894, #24175, PRs #20595, #23907) for CUDA.
     ROCm/HIP path calibrated for RDNA3 consumer (7800 XT, 7900, etc.).
+    Vulkan/mixed path uses significantly lower fixed overhead.
     """
     if not gpus or num_active_gpus <= 0:
         return {"cuda_context_mb": 0, "compute_buffer_mb": 0,
@@ -407,7 +408,35 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
         # Hybrid linear-attn layers → less dense compute
         size_factor *= 0.70
 
-    is_amd = (BACKEND == "amd")
+    # Fallback to module-level BACKEND if caller didn't specify
+    if backend is None:
+        backend = BACKEND or "cuda"
+
+    if backend in ("vulkan", "mixed"):
+        # --- Vulkan / mixed (cross-vendor) ---
+        # Much lower fixed cost — no big CUDA context per GPU
+        fixed_context = 60.0 * num_active_gpus
+        compute_per_gpu = (40.0 + ubatch_size * 0.6) * size_factor
+        compute_buffer_total = compute_per_gpu * num_active_gpus
+        if ctx_size > 16384:
+            flash_attn_mb = 40.0 * size_factor * num_active_gpus
+        else:
+            flash_attn_mb = 15.0 * size_factor * num_active_gpus
+        sync = 25.0 * size_factor * num_active_gpus if num_active_gpus > 1 else 0.0
+
+        total = fixed_context + compute_buffer_total + flash_attn_mb + sync
+        weight_ref = model_weight_mb if model_weight_mb and model_weight_mb > 0 else 16000.0
+        total = min(total, 0.18 * weight_ref + 300.0)
+
+        return {
+            "cuda_context_mb": round(fixed_context, 1),
+            "compute_buffer_mb": round(compute_buffer_total, 1),
+            "flash_attn_mb": round(flash_attn_mb, 1),
+            "tensor_sync_mb": round(sync, 1),
+            "total_mb": round(total, 1),
+        }
+
+    is_amd = backend in ("rocm", "amd")
 
     if is_amd:
         # --- ROCm / HIP (RDNA3 consumer: 7800 XT, 7900, etc.) ---
@@ -519,38 +548,59 @@ SOFT_WHITE = "\033[37m"
 
 # ── Backend detection ──────────────────────────────────
 
+def _has_smi(smi_cmd):
+    """Check if an SMI tool is available on PATH."""
+    return shutil.which(smi_cmd) is not None
+
+
 def detect_gpu_backend():
-    """Detect if the system uses NVIDIA or AMD."""
-    if shutil.which("nvidia-smi"):
+    """Detect if the system uses NVIDIA, AMD, or both (heterogeneous)."""
+    has_n = _has_smi("nvidia-smi")
+    has_a = _has_smi("amd-smi")
+    if has_n and has_a:
+        return "mixed"
+    elif has_n:
         return "nvidia"
-    elif shutil.which("amd-smi"):
+    elif has_a:
         return "amd"
     return None
 
 
-def _enable_nvidia_persistent_mode():
-    """Enable persistent mode so nvidia-smi stays resident between calls.
-    Reduces process spawn/teardown CPU spikes on each refresh cycle."""
+HAS_NVIDIA = _has_smi("nvidia-smi")
+HAS_AMD = _has_smi("amd-smi")
+BACKEND = detect_gpu_backend()
+if HAS_NVIDIA:
     try:
-        subprocess.run(
-            ["nvidia-smi", "-pm", "1"],
-            stdout=subprocess.DEVNULL,
-            stderr=subprocess.DEVNULL,
-            timeout=5,
-        )
+        subprocess.run(["nvidia-smi", "-pm", "1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
     except (subprocess.SubprocessError, OSError, FileNotFoundError):
         pass
 
 
-BACKEND = detect_gpu_backend()
-if BACKEND == "nvidia":
-    _enable_nvidia_persistent_mode()
+def detect_llama_backend(cmd):
+    """Detect the compute backend from a running llama.cpp command.
+
+    Returns: 'cuda' | 'vulkan' | 'rocm' | 'mixed' | 'unknown'
+    """
+    cmd_lower = cmd.lower()
+    if any(k in cmd_lower for k in ("--device vulkan", "vulkan")):
+        return "vulkan"
+    if any(k in cmd_lower for k in ("rocm", "hip", "--device gpu")):
+        return "rocm"
+    # Default: assume cuda for nvidia-only, or check env
+    if HAS_NVIDIA and not HAS_AMD:
+        return "cuda"
+    if HAS_AMD and not HAS_NVIDIA:
+        return "rocm"
+    # Both present and no explicit backend → mixed/vulkan is common
+    return "mixed"
 
 
 def _theme():
     """Return (border_color, primary_color, primary_light) for current backend."""
     if BACKEND == "amd":
         return "\033[38;5;52m", ORANGE, LIGHT_ORANGE
+    if BACKEND == "mixed":
+        return "\033[38;5;136m", CYAN, "\033[1m"  # neutral cyan for mixed
     return "\033[38;5;22m", GREEN, LIGHT_GREEN
 
 BORDER, PRIMARY, PRIMARY_LIGHT = _theme()
@@ -889,10 +939,26 @@ def get_amd_smi(gpu_names=None):
 
 
 def get_gpu_stats(gpu_names=None):
-    """Router: get GPU stats from detected backend."""
-    if BACKEND == "amd":
+    """Router: get GPU stats from detected backend(s).
+
+    For mixed (heterogeneous) systems, polls both nvidia-smi and amd-smi
+    and merges the GPU list with vendor tags.
+    """
+    if BACKEND == "amd" or BACKEND == "rocm":
         return get_amd_smi(gpu_names)
-    return get_nvidia_smi()
+    if BACKEND == "nvidia":
+        return get_nvidia_smi()
+    # Mixed or unknown: poll both and merge
+    gpus = []
+    if HAS_NVIDIA:
+        nvidia_gpus = get_nvidia_smi()
+        if nvidia_gpus:
+            gpus += nvidia_gpus
+    if HAS_AMD:
+        amd_gpus = get_amd_smi(gpu_names)
+        if amd_gpus:
+            gpus += amd_gpus
+    return gpus if gpus else None
 
 # ── Helpers ──────────────────────────────────────
 
@@ -1046,7 +1112,7 @@ def get_ollama_active_amd():
 
 def get_ollama_active():
     """Router: check if Ollama is actively using the GPU."""
-    if BACKEND == "amd":
+    if BACKEND == "amd" or BACKEND == "mixed":
         return get_ollama_active_amd()
     return get_ollama_active_nv()
 
@@ -1807,7 +1873,11 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         active_gpu_count = sum(1 for g in gpus if g.mem_used_mb > 500)
         if active_gpu_count > 1:
             num_active_gpus = active_gpu_count
-    overhead = estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size, weight_mb, active["model_path"])
+    overhead = estimate_runtime_overhead(
+        gpus, batch_size, ubatch_size, num_active_gpus, ctx_size,
+        weight_mb, active["model_path"],
+        backend=detect_llama_backend(active.get("cmd", ""))
+    )
     total_vram_mb = static_mb + overhead["total_mb"]
     return MainModelVram(
         total_mb=total_vram_mb,
@@ -2369,7 +2439,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
     lines.append("")
 
     if not gpus:
-        smi_name = "amd-smi" if BACKEND == "amd" else "nvidia-smi"
+        smi_name = "amd-smi" if BACKEND == "amd" else ("nvidia-smi" if BACKEND == "nvidia" else "amd-smi/nvidia-smi")
         lines.append(f"  {RED}{smi_name} not available{RESET}")
         sys.stdout.write("\n".join(lines))
         sys.stdout.flush()
@@ -2569,7 +2639,7 @@ def main():
     aux_port = get_aux_port(config)
 
     # Cache GPU names once at startup (AMD only, names never change)
-    gpu_names = get_amd_gpu_names() if BACKEND == "amd" else {}
+    gpu_names = get_amd_gpu_names() if HAS_AMD else {}
 
     # Incremental state
     session_totals = {"in": 0, "out": 0, "reqs": 0, "cache": 0}
