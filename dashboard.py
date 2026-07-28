@@ -91,6 +91,8 @@ class MainModelVram:
     cache_type: str
     offload_ratio: float = 1.0
     layers: int = 0
+    # Partial-offload residual info for Fit view
+    residual_mb: float = 0.0
     # Runtime overhead estimates (not in static payload)
     cuda_context_mb: float = 0.0
     compute_buffer_mb: float = 0.0
@@ -2098,13 +2100,25 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     else:
         offload_ratio = 1.0  # unknown arch → assume full GPU
 
-    # Scale the parts that move with -ngl: weights + KV cache.
-    # token_embd.weight + output/lm_head are normally kept on GPU even under partial -ngl.
-    # On typical mid-2026 models (Qwen3.6/3.5-27B, 35B-A3B, etc.) these tensors are ~1.3–1.8 GB.
-    EMBEDDING_FIXED_MB = 1300.0
+    # Check for -ot / --override-tensor: treat as "almost full GPU"
+    has_override_tensor = bool(re.search(r'(-ot|--override-tensor)\s', active.get("cmd", "")))
+
+    # Residual tensors that stay on GPU even under partial -ngl
+    # (token_embd + lm_head/output + a few norms).
+    # Size-aware: classic dense ≈ 2.1 layers worth, hybrid ≈ 1.6 layers.
+    per_layer_mb = (weight_mb / layers) if layers and layers > 0 else 0
+    is_hybrid = any(k in path_lower for k in ("qwen3.6", "qwen3.5", "bonsai", "ornith"))
+    if layers and per_layer_mb > 0:
+        residual_layers = 1.6 if is_hybrid else 2.1
+        EMBEDDING_FIXED_MB = max(400.0, min(4500.0, per_layer_mb * residual_layers))
+    else:
+        EMBEDDING_FIXED_MB = 1300.0  # fallback
+
+    if has_override_tensor and 0.0 < offload_ratio < 1.0:
+        # -ot keeps KV on GPU + most weights; treat as ~90% offload
+        offload_ratio = max(offload_ratio, 0.9)
 
     if 0.0 < offload_ratio < 1.0:
-        # Partial offload: keep embedding/lm_head cost on GPU, scale only the rest
         scalable = max(0.0, weight_mb - EMBEDDING_FIXED_MB)
         weight_mb = EMBEDDING_FIXED_MB + scalable * offload_ratio
     else:
@@ -2159,6 +2173,13 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         weight_mb, active["model_path"],
         backend=detect_llama_backend(active.get("cmd", ""))
     )
+    # Scale runtime overhead down when offload is heavy (compute buffers shrink)
+    if offload_ratio < 0.7 and offload_ratio > 0.0:
+        overhead["total_mb"] *= offload_ratio
+        for key in ("cuda_context_mb", "compute_buffer_mb", "flash_attn_mb", "tensor_sync_mb"):
+            overhead[key] *= offload_ratio
+    overhead["total_mb"] = sum(overhead[k] for k in ("cuda_context_mb", "compute_buffer_mb", "flash_attn_mb", "tensor_sync_mb"))
+
     total_vram_mb = static_mb + overhead["total_mb"]
     return MainModelVram(
         total_mb=total_vram_mb,
@@ -2169,6 +2190,7 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         cache_type=ct_display,
         offload_ratio=offload_ratio,
         layers=layers,
+        residual_mb=EMBEDDING_FIXED_MB if 0.0 < offload_ratio < 1.0 else 0.0,
         cuda_context_mb=overhead["cuda_context_mb"],
         compute_buffer_mb=overhead["compute_buffer_mb"],
         flash_attn_mb=overhead["flash_attn_mb"],
@@ -2872,9 +2894,12 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sy
         gpu_l = int(main_vram_info.offload_ratio * main_vram_info.layers)
         cpu_mb = (main_vram_info.weight_mb + main_vram_info.cache_mb) * (1.0 - main_vram_info.offload_ratio)
         if cpu_mb > 10:
+            residual_str = ""
+            if main_vram_info.residual_mb > 0:
+                residual_str = f"  {DIM}·  residual {main_vram_info.residual_mb / 1024:.1f} GB{RESET}"
             lines.append(
                 f"  {DIM}Offload      {RESET}{DIM_CYAN}{cpu_mb / 1024:.1f}{RESET} {WHITE}GB{RESET} "
-                f"{DIM}on CPU  ·  ngl {gpu_l}/{main_vram_info.layers}{RESET}"
+                f"{DIM}on CPU  ·  ngl {gpu_l}/{main_vram_info.layers}{RESET}{residual_str}"
             )
 
     # Backend
