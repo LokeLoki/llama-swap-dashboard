@@ -6,6 +6,8 @@ A clean terminal dashboard that shows real-time GPU stats, model VRAM estimates,
 
 > Live memory from `nvidia-smi` / `amd-smi` is always authoritative. The built-in VRAM estimate is a planning aid.
 
+<img width="519" height="1209" alt="image" src="https://github.com/user-attachments/assets/6c41e8f6-ac79-4f92-be94-42d7a234c56e" />
+
 ## Requirements
 
 - Python 3.8+ (stdlib only — no extra packages)
@@ -50,6 +52,9 @@ Press **F** to switch to a focused Model Fit Calculator screen:
 - Live GPU VRAM bars with tensor-split percentages
 
 Press **F** again to return to the main dashboard.
+
+<img width="527" height="1284" alt="image" src="https://github.com/user-attachments/assets/db4ef238-74bd-4db1-a808-50fc853ca622" />
+
 
 ## Configuration
 
@@ -97,7 +102,7 @@ The estimate is useful for planning and for understanding how flags affect memor
 
 - Works with both llama-swap and plain llama-server
 - Multi-GPU and heterogeneous (NVIDIA + AMD) setups are supported
-- New model architectures may need table entries for best estimate accuracy.
+- Future model architectures may need table entries for best estimate accuracy.
 
 ## License
 
