@@ -74,7 +74,7 @@ python dashboard.py --refresh 2
 python dashboard.py --help
 ```
 
-## VRAM Estimation (Experimental)
+## VRAM Estimation
 
 The dashboard builds an estimate from:
 
