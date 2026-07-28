@@ -1,0 +1,580 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>GGUF VRAM Calculator</title>
+<style>
+  :root {
+    --bg: #0d1117; --panel: #161b22; --border: #30363d;
+    --text: #e6edf3; --muted: #8b949e; --accent: #3fb950;
+    --accent2: #58a6ff; --warn: #d29922; --danger: #f85149; --input: #21262d;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 16px 20px 40px;
+    font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+    background: var(--bg); color: var(--text); line-height: 1.45;
+  }
+  h1 { font-size: 1.3rem; margin: 0 0 2px; }
+  .sub { color: var(--muted); font-size: 0.88rem; margin-bottom: 14px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 1180px; }
+  @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
+  .card {
+    background: var(--panel); border: 1px solid var(--border);
+    border-radius: 10px; padding: 14px 16px;
+  }
+  .card h2 {
+    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em;
+    color: var(--muted); margin: 0 0 10px; font-weight: 600;
+  }
+  label.row {
+    display: grid; grid-template-columns: 132px 1fr 64px;
+    align-items: center; gap: 8px; margin-bottom: 8px; font-size: 0.9rem;
+  }
+  label.row.full { grid-template-columns: 132px 1fr; }
+  label.row span.val { text-align: right; font-variant-numeric: tabular-nums; color: var(--accent2); font-size: 0.85rem; }
+  input[type=range] { width: 100%; accent-color: var(--accent); }
+  select, input[type=number] {
+    width: 100%; background: var(--input); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; padding: 5px 8px; font-size: 0.9rem;
+  }
+  .toggles { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 6px; }
+  .toggles label { display: flex; align-items: center; gap: 5px; font-size: 0.88rem; cursor: pointer; }
+  .result-big { font-size: 2.1rem; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .result-sub { color: var(--muted); font-size: 0.88rem; margin-top: 2px; }
+  .bars { margin-top: 12px; }
+  .bar-row { margin-bottom: 7px; }
+  .bar-label { display: flex; justify-content: space-between; font-size: 0.82rem; margin-bottom: 2px; }
+  .bar-track { height: 9px; background: #21262d; border-radius: 5px; overflow: hidden; }
+  .bar-seg { height: 100%; }
+  table.breakdown { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-top: 6px; }
+  table.breakdown td { padding: 3px 0; border-bottom: 1px solid #21262d; }
+  table.breakdown td:last-child { text-align: right; font-variant-numeric: tabular-nums; color: var(--accent2); }
+  .note { font-size: 0.78rem; color: var(--muted); margin-top: 10px; }
+  .pill {
+    display: inline-block; padding: 1px 7px; border-radius: 999px;
+    font-size: 0.72rem; background: #21262d; color: var(--muted); margin-right: 4px;
+  }
+  .fit-ok { color: var(--accent); } .fit-tight { color: var(--warn); } .fit-no { color: var(--danger); }
+  .arch-meta { font-size: 0.8rem; color: var(--muted); margin: -4px 0 10px; min-height: 1.2em; }
+</style>
+</head>
+<body>
+  <h1>GGUF VRAM Calculator</h1>
+  <div class="sub">
+    Architecture-aware estimator (hybrid, dual-geometry, MLA, split KV, residual, OS/display overhead).
+    Same core formulas as llama-swap-dashboard · MIT
+  </div>
+
+  <div class="grid">
+    <div class="card">
+      <h2>Model</h2>
+      <label class="row full">
+        <span>Architecture</span>
+        <select id="arch"></select>
+      </label>
+      <div class="arch-meta" id="archMeta"></div>
+
+      <label class="row full">
+        <span>Weight quant</span>
+        <select id="weightQuant"></select>
+      </label>
+      <label class="row full">
+        <span>Weight size override</span>
+        <div style="display:flex;gap:6px;align-items:center">
+          <input type="number" id="weightOverride" min="0" step="0.1" placeholder="auto from quant" style="flex:1">
+          <span style="color:var(--muted);font-size:0.8rem">GB</span>
+        </div>
+      </label>
+
+      <label class="row full">
+        <span>Cache K (-ctk)</span>
+        <select id="ctk"></select>
+      </label>
+      <label class="row full">
+        <span>Cache V (-ctv)</span>
+        <select id="ctv"></select>
+      </label>
+
+      <h2 style="margin-top:14px">Context &amp; offload</h2>
+      <label class="row">
+        <span>Context (-c)</span>
+        <input type="range" id="ctx" min="2048" max="1048576" step="1024" value="65536">
+        <span class="val" id="ctxVal">64k</span>
+      </label>
+      <label class="row">
+        <span>GPU layers (-ngl)</span>
+        <input type="range" id="ngl" min="0" max="128" step="1" value="99">
+        <span class="val" id="nglVal">99</span>
+      </label>
+      <label class="row">
+        <span>Batch (-b)</span>
+        <input type="range" id="batch" min="128" max="4096" step="128" value="2048">
+        <span class="val" id="batchVal">2048</span>
+      </label>
+      <label class="row">
+        <span>Ubatch (-ub)</span>
+        <input type="range" id="ubatch" min="64" max="2048" step="64" value="512">
+        <span class="val" id="ubatchVal">512</span>
+      </label>
+
+      <h2 style="margin-top:14px">Extras</h2>
+      <div class="toggles">
+        <label><input type="checkbox" id="mmproj"> mmproj</label>
+        <label><input type="checkbox" id="mtp"> MTP / draft-mtp</label>
+        <label><input type="checkbox" id="ot"> -ot style</label>
+        <label><input type="checkbox" id="fa" checked> flash-attn</label>
+      </div>
+      <label class="row" id="mmprojRow" style="display:none">
+        <span>mmproj size</span>
+        <input type="range" id="mmprojMb" min="200" max="2000" step="50" value="860">
+        <span class="val" id="mmprojVal">0.84 GB</span>
+      </label>
+      <label class="row" id="mtpRow" style="display:none">
+        <span>MTP heads</span>
+        <input type="range" id="mtpN" min="1" max="3" step="1" value="2">
+        <span class="val" id="mtpNVal">2</span>
+      </label>
+      <label class="row">
+        <span>Active GPUs</span>
+        <input type="range" id="ngpu" min="1" max="8" step="1" value="1">
+        <span class="val" id="ngpuVal">1</span>
+      </label>
+      <label class="row full">
+        <span>Backend</span>
+        <select id="backend">
+          <option value="cuda">CUDA</option>
+          <option value="rocm">ROCm</option>
+          <option value="vulkan">Vulkan</option>
+        </select>
+      </label>
+
+      <h2 style="margin-top:14px">OS / display overhead</h2>
+      <label class="row full">
+        <span>OS profile</span>
+        <select id="osProfile">
+          <option value="none">None (headless / pure estimate)</option>
+          <option value="linux-light">Linux light desktop (~0.4–0.8 GB)</option>
+          <option value="linux-full" selected>Linux full desktop (~0.8–1.5 GB)</option>
+          <option value="win-light">Windows light (DWM + shell ~1.0–1.5 GB)</option>
+          <option value="win-full">Windows full (DWM + browser/Discord ~1.5–3.0 GB)</option>
+          <option value="custom">Custom slider</option>
+        </select>
+      </label>
+      <label class="row" id="osCustomRow" style="display:none">
+        <span>Custom OS+display</span>
+        <input type="range" id="osCustom" min="0" max="4096" step="64" value="1024">
+        <span class="val" id="osCustomVal">1.0 GB</span>
+      </label>
+      <label class="row">
+        <span>Extra reserve</span>
+        <input type="range" id="reserve" min="0" max="4096" step="128" value="512">
+        <span class="val" id="reserveVal">0.5 GB</span>
+      </label>
+      <label class="row">
+        <span>Target VRAM</span>
+        <input type="range" id="target" min="6" max="192" step="1" value="24">
+        <span class="val" id="targetVal">24 GB</span>
+      </label>
+    </div>
+
+    <div class="card">
+      <h2>Estimate</h2>
+      <div class="result-big" id="totalGb">—</div>
+      <div class="result-sub" id="fitLine">—</div>
+      <div class="bars" id="bars"></div>
+      <table class="breakdown" id="table"></table>
+      <div class="note">
+        Model estimate uses the dashboard formulas. OS/display is a planning reserve so the
+        number matches what you actually have free under a desktop session. Live SMI remains authoritative.
+      </div>
+    </div>
+  </div>
+
+<script>
+/* ═══════════════════════════════════════════════════════════
+   Architecture table — mirrors llama-swap-dashboard
+   [layers, kv_heads, head_dim, kind, extra]
+   kind: dense | hybrid | iswa | dual | mla
+   ═══════════════════════════════════════════════════════════ */
+const ARCH = {
+  // Qwen 3.6 / 3.5 hybrid
+  "qwen3.6-27b":      { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, w:{q4_k_m:16500,q5_k_m:19200,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
+  "qwen3.5-27b":      { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, w:{q4_k_m:16500,q5_k_m:19200,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
+  "qwen3.5-9b":       { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
+  "qwen3.5-8b":       { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,iq4_xs:4200,f16:16000} },
+  "qwen3.6-35b-a3b":  { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
+  "qwen3.5-35b-a3b":  { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
+  "qwen3.5-122b-a10b":{ layers:64, kv:8, dim:256, kind:"hybrid", eff:16, w:{q4_k_m:65000,q5_k_m:78000,q6_k:92000,q8_0:120000,iq4_xs:58000,f16:230000} },
+  "qwen3.5-397b-a17b":{ layers:72, kv:8, dim:256, kind:"hybrid", eff:18, w:{q4_k_m:180000,q5_k_m:220000,q6_k:260000,q8_0:340000,iq4_xs:160000,f16:700000} },
+  "ornith":           { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
+  "bonsai":           { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, w:{q4_k_m:9000,q5_k_m:11000,q6_k:13000,q8_0:16000,iq4_xs:8000,f16:30000} },
+
+  // Qwen 3 dense / MoE
+  "qwen3-32b":        { layers:64, kv:8, dim:128, kind:"dense", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
+  "qwen3-14b":        { layers:40, kv:8, dim:128, kind:"dense", w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,iq4_xs:7500,f16:28000} },
+  "qwen3-8b":         { layers:36, kv:8, dim:128, kind:"dense", w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,iq4_xs:4200,f16:16000} },
+  "qwen3-4b":         { layers:36, kv:8, dim:128, kind:"dense", w:{q4_k_m:2500,q5_k_m:3000,q6_k:3500,q8_0:4500,iq4_xs:2200,f16:8000} },
+  "qwen3-30b-a3b":    { layers:48, kv:4, dim:128, kind:"dense", w:{q4_k_m:17000,q5_k_m:20000,q6_k:24000,q8_0:31000,iq4_xs:15000,f16:60000} },
+  "qwen3-235b-a22b":  { layers:94, kv:4, dim:128, kind:"dense", w:{q4_k_m:120000,q5_k_m:145000,q6_k:170000,q8_0:220000,iq4_xs:110000,f16:440000} },
+
+  // Qwen 2.5
+  "qwen2.5-72b":      { layers:80, kv:8, dim:128, kind:"dense", w:{q4_k_m:40000,q5_k_m:48000,q6_k:56000,q8_0:72000,iq4_xs:36000,f16:144000} },
+  "qwen2.5-32b":      { layers:64, kv:8, dim:128, kind:"dense", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
+  "qwen2.5-14b":      { layers:48, kv:8, dim:128, kind:"dense", w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,iq4_xs:7500,f16:28000} },
+  "qwen2.5-7b":       { layers:28, kv:4, dim:128, kind:"dense", w:{q4_k_m:4200,q5_k_m:5000,q6_k:5800,q8_0:7500,iq4_xs:3800,f16:14000} },
+  "qwen2.5-3b":       { layers:36, kv:2, dim:128, kind:"dense", w:{q4_k_m:1900,q5_k_m:2300,q6_k:2700,q8_0:3400,iq4_xs:1700,f16:6000} },
+
+  // Llama 3.x / 4
+  "llama3.1-405b":    { layers:126, kv:8, dim:128, kind:"dense", w:{q4_k_m:210000,q5_k_m:250000,q6_k:300000,q8_0:400000,iq4_xs:190000,f16:800000} },
+  "llama3.1-70b":     { layers:80, kv:8, dim:128, kind:"dense", w:{q4_k_m:38000,q5_k_m:46000,q6_k:54000,q8_0:70000,iq4_xs:34000,f16:140000} },
+  "llama3.1-8b":      { layers:32, kv:8, dim:128, kind:"dense", w:{q4_k_m:4500,q5_k_m:5400,q6_k:6200,q8_0:8000,iq4_xs:4000,f16:16000} },
+  "llama3.3-70b":     { layers:80, kv:8, dim:128, kind:"dense", w:{q4_k_m:38000,q5_k_m:46000,q6_k:54000,q8_0:70000,iq4_xs:34000,f16:140000} },
+  "llama3.2-3b":      { layers:28, kv:8, dim:128, kind:"dense", w:{q4_k_m:1900,q5_k_m:2300,q6_k:2700,q8_0:3400,iq4_xs:1700,f16:6000} },
+  "llama3.2-1b":      { layers:16, kv:4, dim:64,  kind:"dense", w:{q4_k_m:700,q5_k_m:850,q6_k:1000,q8_0:1300,iq4_xs:600,f16:2400} },
+  "llama4-scout":     { layers:48, kv:8, dim:128, kind:"dense", moe:true, w:{q4_k_m:56000,q5_k_m:68000,q6_k:80000,q8_0:105000,iq4_xs:50000,f16:210000} },
+  "llama4-maverick":  { layers:80, kv:8, dim:128, kind:"dense", moe:true, w:{q4_k_m:200000,q5_k_m:240000,q6_k:280000,q8_0:370000,iq4_xs:180000,f16:740000} },
+
+  // Gemma
+  "gemma2-27b":       { layers:46, kv:16, dim:128, kind:"iswa", window:4096, w:{q4_k_m:15500,q5_k_m:18500,q6_k:21500,q8_0:28000,iq4_xs:14000,f16:54000} },
+  "gemma2-9b":        { layers:42, kv:8, dim:256, kind:"iswa", window:4096, w:{q4_k_m:5500,q5_k_m:6500,q6_k:7500,q8_0:9500,iq4_xs:5000,f16:18000} },
+  "gemma2-2b":        { layers:26, kv:4, dim:256, kind:"iswa", window:4096, w:{q4_k_m:1600,q5_k_m:1900,q6_k:2200,q8_0:2800,iq4_xs:1400,f16:5000} },
+  "gemma4-31b":       { layers:60, kv:4, dim:512, kind:"dual",
+    geo:{ sliding:{n:50,kv:16,dim:256}, global:{n:10,kv:4,dim:512,k_eq_v:true}, window:1024 },
+    w:{q4_k_m:17500,q5_k_m:21000,q6_k:24500,q8_0:32000,iq4_xs:15500,f16:62000} },
+  "gemma4-26b-a4b":   { layers:30, kv:2, dim:512, kind:"dual",
+    geo:{ sliding:{n:25,kv:8,dim:256}, global:{n:5,kv:2,dim:512,k_eq_v:true}, window:1024 },
+    w:{q4_k_m:14000,q5_k_m:17000,q6_k:20000,q8_0:26000,iq4_xs:12500,f16:50000} },
+  "gemma4-12b":       { layers:48, kv:2, dim:512, kind:"dual",
+    geo:{ sliding:{n:40,kv:8,dim:256}, global:{n:8,kv:2,dim:512,k_eq_v:true}, window:1024 },
+    w:{q4_k_m:7000,q5_k_m:8500,q6_k:10000,q8_0:13000,iq4_xs:6200,f16:24000} },
+  "gemma4-e4b":       { layers:42, kv:1, dim:512, kind:"dual",
+    geo:{ sliding:{n:35,kv:2,dim:256}, global:{n:7,kv:1,dim:512,k_eq_v:false}, window:512 },
+    w:{q4_k_m:2800,q5_k_m:3400,q6_k:4000,q8_0:5200,iq4_xs:2500,f16:9000} },
+  "gemma4-e2b":       { layers:35, kv:1, dim:512, kind:"dual",
+    geo:{ sliding:{n:28,kv:1,dim:256}, global:{n:7,kv:1,dim:512,k_eq_v:false}, window:512 },
+    w:{q4_k_m:1500,q5_k_m:1800,q6_k:2100,q8_0:2800,iq4_xs:1300,f16:5000} },
+
+  // DeepSeek / MLA
+  "deepseek-v3":      { layers:61, kv:128, dim:128, kind:"mla", w:{q4_k_m:350000,q5_k_m:420000,q6_k:500000,q8_0:650000,iq4_xs:320000,f16:1300000} },
+  "deepseek-r1":      { layers:61, kv:128, dim:128, kind:"mla", w:{q4_k_m:350000,q5_k_m:420000,q6_k:500000,q8_0:650000,iq4_xs:320000,f16:1300000} },
+
+  // Laguna
+  "laguna-s-2.1":     { layers:48, kv:8, dim:128, kind:"dense", w:{q4_k_m:55000,q5_k_m:66000,q6_k:78000,q8_0:100000,iq4_xs:50000,f16:200000} },
+  "laguna-xs-2.1":    { layers:40, kv:8, dim:128, kind:"dense", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
+
+  // Mistral family
+  "mistral-7b":       { layers:32, kv:8, dim:128, kind:"dense", w:{q4_k_m:4200,q5_k_m:5000,q6_k:5800,q8_0:7500,iq4_xs:3800,f16:14000} },
+  "mixtral-8x7b":     { layers:32, kv:8, dim:128, kind:"dense", moe:true, w:{q4_k_m:26000,q5_k_m:31000,q6_k:36000,q8_0:47000,iq4_xs:24000,f16:90000} },
+  "mixtral-8x22b":    { layers:56, kv:8, dim:128, kind:"dense", moe:true, w:{q4_k_m:80000,q5_k_m:95000,q6_k:110000,q8_0:145000,iq4_xs:72000,f16:280000} },
+  "codestral":        { layers:40, kv:8, dim:128, kind:"dense", w:{q4_k_m:12000,q5_k_m:14500,q6_k:17000,q8_0:22000,iq4_xs:11000,f16:42000} },
+  "mistral-nemo-2":   { layers:40, kv:8, dim:128, kind:"dense", w:{q4_k_m:7200,q5_k_m:8600,q6_k:10000,q8_0:13000,iq4_xs:6500,f16:24000} },
+
+  // Others
+  "phi-4":            { layers:40, kv:10, dim:128, kind:"dense", w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,iq4_xs:7500,f16:28000} },
+  "phi-3.5":          { layers:32, kv:32, dim:96,  kind:"dense", w:{q4_k_m:2200,q5_k_m:2600,q6_k:3100,q8_0:4000,iq4_xs:2000,f16:7500} },
+  "command-r-plus":   { layers:64, kv:8, dim:128, kind:"dense", w:{q4_k_m:55000,q5_k_m:66000,q6_k:78000,q8_0:100000,iq4_xs:50000,f16:200000} },
+  "command-r":        { layers:32, kv:8, dim:128, kind:"dense", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
+  "yi-34b":           { layers:60, kv:8, dim:128, kind:"dense", w:{q4_k_m:19000,q5_k_m:23000,q6_k:27000,q8_0:35000,iq4_xs:17000,f16:68000} },
+  "nemotron-h-56b":   { layers:118, kv:8, dim:128, kind:"hybrid", eff:10, w:{q4_k_m:30000,q5_k_m:36000,q6_k:42000,q8_0:55000,iq4_xs:27000,f16:110000} },
+  "nemotron-h-8b":    { layers:52, kv:8, dim:128, kind:"hybrid", eff:5, w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,iq4_xs:4200,f16:16000} },
+};
+
+const CACHE_BYTES = {
+  f16:2.0, bf16:2.0, q8_0:1.0, fp8:1.0, q6_k:0.75,
+  q5_k_m:0.625, q5_0:0.625, q4_k_m:0.5, q4_0:0.5, iq4_xs:0.5,
+  q3_k_m:0.375, q2_k:0.25
+};
+const CACHE_OPTS = Object.keys(CACHE_BYTES);
+const WEIGHT_OPTS = ["iq4_xs","q4_k_m","q5_k_m","q6_k","q8_0","f16"];
+
+const OS_PROFILES = {
+  none:        { base:0,   spread:0 },
+  "linux-light":{ base:400, spread:400 },
+  "linux-full": { base:800, spread:700 },
+  "win-light":  { base:1100,spread:400 },
+  "win-full":   { base:1800,spread:1200 },
+  custom:      { base:0,   spread:0 },
+};
+
+function $(id){ return document.getElementById(id); }
+
+function populate() {
+  const a = $("arch");
+  const groups = {
+    "Qwen 3.6 / 3.5 hybrid": ["qwen3.6-27b","qwen3.5-27b","qwen3.5-9b","qwen3.5-8b","qwen3.6-35b-a3b","qwen3.5-35b-a3b","qwen3.5-122b-a10b","qwen3.5-397b-a17b","ornith","bonsai"],
+    "Qwen 3 / 2.5": ["qwen3-32b","qwen3-14b","qwen3-8b","qwen3-4b","qwen3-30b-a3b","qwen3-235b-a22b","qwen2.5-72b","qwen2.5-32b","qwen2.5-14b","qwen2.5-7b","qwen2.5-3b"],
+    "Llama": ["llama3.1-8b","llama3.1-70b","llama3.1-405b","llama3.3-70b","llama3.2-3b","llama3.2-1b","llama4-scout","llama4-maverick"],
+    "Gemma": ["gemma2-2b","gemma2-9b","gemma2-27b","gemma4-e2b","gemma4-e4b","gemma4-12b","gemma4-26b-a4b","gemma4-31b"],
+    "DeepSeek MLA": ["deepseek-v3","deepseek-r1"],
+    "Mistral / Mixtral": ["mistral-7b","mistral-nemo-2","codestral","mixtral-8x7b","mixtral-8x22b"],
+    "Other": ["laguna-xs-2.1","laguna-s-2.1","phi-4","phi-3.5","command-r","command-r-plus","yi-34b","nemotron-h-8b","nemotron-h-56b"],
+  };
+  for (const [label, keys] of Object.entries(groups)) {
+    const og = document.createElement("optgroup"); og.label = label;
+    keys.forEach(k => {
+      if (!ARCH[k]) return;
+      const o = document.createElement("option"); o.value = k; o.textContent = k;
+      if (k === "qwen3.6-27b") o.selected = true;
+      og.appendChild(o);
+    });
+    a.appendChild(og);
+  }
+  WEIGHT_OPTS.forEach(k => {
+    const o = document.createElement("option"); o.value = k; o.textContent = k.toUpperCase();
+    if (k === "q4_k_m") o.selected = true;
+    $("weightQuant").appendChild(o);
+  });
+  CACHE_OPTS.forEach(k => {
+    ["ctk","ctv"].forEach(id => {
+      const o = document.createElement("option"); o.value = k; o.textContent = k;
+      if (k === "q8_0") o.selected = true;
+      $(id).appendChild(o);
+    });
+  });
+}
+
+function fmtCtx(n) {
+  if (n >= 1e6) return (n/1e6).toFixed(2).replace(/\.?0+$/,"") + "M";
+  if (n >= 1000) return (n/1000).toFixed(n%1000?1:0) + "k";
+  return String(n);
+}
+
+function calcKV(arch, kB, vB, tokens) {
+  const bpe = kB + vB;
+  if (arch.kind === "mla") {
+    // ~70 KB/token at F16, scale by avg bytes vs 2.0
+    const avg = (kB + vB) / 2;
+    return (70.0 * tokens / 1024) * (avg / 2.0);
+  }
+  if (arch.kind === "dual" && arch.geo) {
+    const g = arch.geo;
+    const sliding = g.sliding.n * g.sliding.kv * g.sliding.dim * bpe * Math.min(tokens, g.window);
+    const globalBpe = g.global.k_eq_v ? bpe * 0.5 : bpe;
+    const global = g.global.n * g.global.kv * g.global.dim * globalBpe * tokens;
+    return (sliding + global) / (1024 * 1024);
+  }
+  const kvLayers = arch.kind === "hybrid" ? (arch.eff || Math.round(arch.layers * 0.25)) : arch.layers;
+  if (arch.kind === "iswa" && arch.window) {
+    const ratio = arch.window <= 1024 ? 6 : 2;
+    const globalL = Math.floor(kvLayers / ratio);
+    const slidingL = kvLayers - globalL;
+    const effTok = globalL * tokens + slidingL * Math.min(tokens, arch.window);
+    return (arch.kv * arch.dim * bpe * effTok) / (1024 * 1024);
+  }
+  return (kvLayers * arch.kv * arch.dim * bpe * tokens) / (1024 * 1024);
+}
+
+function osOverheadMb() {
+  const profile = $("osProfile").value;
+  if (profile === "custom") return +$("osCustom").value;
+  const p = OS_PROFILES[profile] || OS_PROFILES.none;
+  // midpoint of the typical range
+  return p.base + p.spread * 0.5;
+}
+
+function estimate() {
+  const key = $("arch").value;
+  const arch = ARCH[key];
+  if (!arch) return;
+
+  // meta
+  const bits = [`${arch.layers}L`, `kv=${arch.kv}×${arch.dim}`, arch.kind];
+  if (arch.eff) bits.push(`effKV=${arch.eff}`);
+  if (arch.moe) bits.push("MoE");
+  if (arch.window) bits.push(`win=${arch.window}`);
+  $("archMeta").textContent = bits.join(" · ");
+
+  // weights
+  const wq = $("weightQuant").value;
+  let weightMb = (arch.w && arch.w[wq]) ? arch.w[wq] : (arch.w && arch.w.q4_k_m) ? arch.w.q4_k_m : 16000;
+  const override = parseFloat($("weightOverride").value);
+  if (!isNaN(override) && override > 0) weightMb = override * 1024;
+
+  const kB = CACHE_BYTES[$("ctk").value];
+  const vB = CACHE_BYTES[$("ctv").value];
+  const ctx = +$("ctx").value;
+  const layers = arch.layers;
+  let ngl = Math.min(+$("ngl").value, layers);
+  const batch = +$("batch").value;
+  const ubatch = +$("ubatch").value;
+  const ngpu = +$("ngpu").value;
+  const backend = $("backend").value;
+  const useMmproj = $("mmproj").checked;
+  const useMtp = $("mtp").checked;
+  const useOt = $("ot").checked;
+  const useFa = $("fa").checked;
+  const targetGb = +$("target").value;
+  const reserveMb = +$("reserve").value;
+  const desktopMb = osOverheadMb();
+
+  let mmprojMb = useMmproj ? +$("mmprojMb").value : 0;
+  let draftCacheMb = 0;
+  if (useMtp) {
+    const n = +$("mtpN").value;
+    const full = calcKV(arch, kB, vB, ctx);
+    const eff = arch.eff || arch.layers;
+    draftCacheMb = full * (n / Math.max(1, eff));
+  }
+
+  let cacheMb = calcKV(arch, kB, vB, ctx);
+
+  // offload
+  let offloadRatio = Math.max(0, Math.min(ngl, layers)) / layers;
+  if (useOt && offloadRatio > 0 && offloadRatio < 1) offloadRatio = Math.max(offloadRatio, 0.9);
+
+  const isHybrid = arch.kind === "hybrid";
+  const residualLayers = isHybrid ? 1.6 : 2.1;
+  const perLayer = weightMb / layers;
+  const residualMb = Math.max(400, Math.min(4500, perLayer * residualLayers));
+
+  let weightOnGpu;
+  if (offloadRatio > 0 && offloadRatio < 1) {
+    const scalable = Math.max(0, weightMb - residualMb);
+    weightOnGpu = residualMb + scalable * offloadRatio;
+  } else {
+    weightOnGpu = weightMb * offloadRatio;
+  }
+  cacheMb *= offloadRatio;
+
+  // fixed linear-attn / SSM state
+  let deltaMb = 0;
+  if (arch.kind === "hybrid") {
+    const nonKv = layers - (arch.eff || Math.round(layers * 0.25));
+    const per = key.includes("nemotron") ? 6.0 : 4.5;
+    deltaMb = nonKv * offloadRatio * per;
+  }
+
+  // runtime overhead
+  const hybridDiscount = isHybrid ? 0.70 : 1.0;
+  const sizeFactor = Math.max(0.25, Math.min(3.5, (weightMb / 16500) * hybridDiscount));
+  let cudaCtx, compute, fa, sync;
+  if (backend === "vulkan") {
+    cudaCtx = 35 * ngpu;
+    compute = (28 + ubatch * 0.45) * sizeFactor * ngpu;
+    fa = useFa ? (ctx > 32768 ? 35 : ctx > 8192 ? 18 : 8) * sizeFactor * ngpu : 0;
+    sync = ngpu > 1 ? 18 * sizeFactor * ngpu : 0;
+  } else if (backend === "rocm") {
+    cudaCtx = 90 * ngpu;
+    compute = (50 + ubatch * 0.70) * sizeFactor * ngpu;
+    fa = useFa ? (ctx > 16384 ? 55 : 22) * sizeFactor * ngpu : 0;
+    sync = ngpu > 1 ? 30 * sizeFactor * ngpu : 0;
+  } else {
+    cudaCtx = 220 * ngpu;
+    compute = (65 + ubatch * 0.80) * sizeFactor * ngpu;
+    if (useFa) {
+      if (ctx > 8192) {
+        const ctxFactor = Math.min(1.8, Math.max(0.35, ctx / 130000));
+        fa = 130 * ctxFactor * sizeFactor * ngpu;
+      } else fa = 40 * sizeFactor * ngpu;
+    } else fa = 0;
+    sync = ngpu > 1 ? 40 * sizeFactor * ngpu : 0;
+  }
+  let overheadMb = cudaCtx + compute + fa + sync;
+  if (offloadRatio < 0.7 && offloadRatio > 0) {
+    overheadMb *= offloadRatio;
+    cudaCtx *= offloadRatio; compute *= offloadRatio; fa *= offloadRatio; sync *= offloadRatio;
+  }
+  overheadMb = Math.min(overheadMb, 0.25 * weightMb + 480);
+
+  const modelStatic = weightOnGpu + mmprojMb + cacheMb + draftCacheMb + deltaMb;
+  const modelTotal = modelStatic + overheadMb;
+  const planningTotal = modelTotal + desktopMb + reserveMb;
+
+  // display
+  $("totalGb").textContent = (planningTotal / 1024).toFixed(2) + " GB";
+  const headroom = targetGb - planningTotal / 1024;
+  const fitEl = $("fitLine");
+  if (headroom >= 2) fitEl.innerHTML = `<span class="fit-ok">Fits on ${targetGb} GB</span> · ${headroom.toFixed(1)} GB free after OS/reserve`;
+  else if (headroom >= 0) fitEl.innerHTML = `<span class="fit-tight">Tight on ${targetGb} GB</span> · ${headroom.toFixed(1)} GB free after OS/reserve`;
+  else fitEl.innerHTML = `<span class="fit-no">Over by ${(-headroom).toFixed(1)} GB</span> on ${targetGb} GB (incl. OS/reserve)`;
+
+  const parts = [
+    { name: "Weights", mb: weightOnGpu, color: "#58a6ff" },
+    { name: "KV cache", mb: cacheMb, color: "#3fb950" },
+    { name: "DeltaNet/SSM state", mb: deltaMb, color: "#d29922" },
+    { name: "mmproj", mb: mmprojMb, color: "#a371f7" },
+    { name: "MTP cache", mb: draftCacheMb, color: "#db61a2" },
+    { name: "Runtime overhead", mb: overheadMb, color: "#8b949e" },
+    { name: "OS / display", mb: desktopMb, color: "#f78166" },
+    { name: "Extra reserve", mb: reserveMb, color: "#6e7681" },
+  ].filter(p => p.mb > 0.5);
+
+  const maxMb = Math.max(planningTotal, targetGb * 1024);
+  $("bars").innerHTML = parts.map(p => {
+    const pct = (p.mb / maxMb * 100).toFixed(1);
+    return `<div class="bar-row">
+      <div class="bar-label"><span>${p.name}</span><span>${(p.mb/1024).toFixed(2)} GB</span></div>
+      <div class="bar-track"><div class="bar-seg" style="width:${pct}%;background:${p.color}"></div></div>
+    </div>`;
+  }).join("") + `<div class="bar-row">
+    <div class="bar-label"><span>Total vs ${targetGb} GB</span><span>${(planningTotal/1024).toFixed(2)} / ${targetGb} GB</span></div>
+    <div class="bar-track"><div class="bar-seg" style="width:${Math.min(100,planningTotal/(targetGb*1024)*100).toFixed(1)}%;background:${headroom>=0?"#3fb950":"#f85149"}"></div></div>
+  </div>`;
+
+  const ctk = $("ctk").value, ctv = $("ctv").value;
+  const cacheLabel = ctk === ctv ? ctk : `${ctk}/${ctv}`;
+  const rows = [
+    ["Architecture", key + (arch.moe ? " (MoE)" : "")],
+    ["Kind", arch.kind + (arch.eff ? ` · eff KV layers ${arch.eff}/${layers}` : "")],
+    ["Weight quant", wq.toUpperCase()],
+    ["Weights on GPU", (weightOnGpu/1024).toFixed(2) + " GB"],
+    ["Residual fixed", (residualMb/1024).toFixed(2) + " GB"],
+    ["KV cache (" + cacheLabel + ")", (cacheMb/1024).toFixed(2) + " GB"],
+    ["Linear/SSM state", deltaMb ? (deltaMb/1024).toFixed(2) + " GB" : "—"],
+    ["mmproj", mmprojMb ? (mmprojMb/1024).toFixed(2) + " GB" : "—"],
+    ["MTP cache", draftCacheMb ? (draftCacheMb/1024).toFixed(2) + " GB" : "—"],
+    ["Runtime overhead", (overheadMb/1024).toFixed(2) + " GB"],
+    ["  · fixed/context", cudaCtx.toFixed(0) + " MB"],
+    ["  · compute", compute.toFixed(0) + " MB"],
+    ["  · flash-attn", fa.toFixed(0) + " MB"],
+    ["  · GPU sync", sync.toFixed(0) + " MB"],
+    ["Model subtotal", (modelTotal/1024).toFixed(2) + " GB"],
+    ["OS / display", (desktopMb/1024).toFixed(2) + " GB"],
+    ["Extra reserve", (reserveMb/1024).toFixed(2) + " GB"],
+    ["Planning total", (planningTotal/1024).toFixed(2) + " GB"],
+    ["Offload", `${(offloadRatio*100).toFixed(0)}%  (ngl ${Math.round(offloadRatio*layers)}/${layers})`],
+  ];
+  $("table").innerHTML = rows.map(([a,b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join("");
+
+  // ngl max label
+  $("ngl").max = layers;
+  if (+$("ngl").value > layers) $("ngl").value = layers;
+  $("nglVal").textContent = `${Math.min(+$("ngl").value, layers)}/${layers}`;
+}
+
+function bind() {
+  const ids = ["arch","weightQuant","weightOverride","ctk","ctv","ctx","ngl","batch","ubatch",
+    "mmproj","mtp","ot","fa","mmprojMb","mtpN","ngpu","backend","osProfile","osCustom","reserve","target"];
+  ids.forEach(id => {
+    $(id).addEventListener("input", () => {
+      if (id === "ctx") $("ctxVal").textContent = fmtCtx(+$("ctx").value);
+      if (id === "ngl") $("nglVal").textContent = `${$("ngl").value}`;
+      if (id === "batch") $("batchVal").textContent = $("batch").value;
+      if (id === "ubatch") $("ubatchVal").textContent = $("ubatch").value;
+      if (id === "mtpN") $("mtpNVal").textContent = $("mtpN").value;
+      if (id === "ngpu") $("ngpuVal").textContent = $("ngpu").value;
+      if (id === "mmprojMb") $("mmprojVal").textContent = (+$("mmprojMb").value/1024).toFixed(2)+" GB";
+      if (id === "osCustom") $("osCustomVal").textContent = (+$("osCustom").value/1024).toFixed(2)+" GB";
+      if (id === "reserve") $("reserveVal").textContent = (+$("reserve").value/1024).toFixed(2)+" GB";
+      if (id === "target") $("targetVal").textContent = $("target").value + " GB";
+      $("mmprojRow").style.display = $("mmproj").checked ? "grid" : "none";
+      $("mtpRow").style.display = $("mtp").checked ? "grid" : "none";
+      $("osCustomRow").style.display = $("osProfile").value === "custom" ? "grid" : "none";
+      if (id === "arch") {
+        // reset ngl to full when switching models
+        const layers = ARCH[$("arch").value].layers;
+        $("ngl").max = layers; $("ngl").value = layers;
+      }
+      estimate();
+    });
+  });
+}
+
+populate();
+bind();
+estimate();
+</script>
+</body>
+</html>
