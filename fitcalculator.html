@@ -447,8 +447,23 @@ function estimate() {
   }
 
   // runtime overhead
-  const hybridDiscount = isHybrid ? 0.70 : 1.0;
-  const sizeFactor = Math.max(0.25, Math.min(3.5, (weightMb / 16500) * hybridDiscount));
+  const hybridDiscount = isHybrid ? 0.75 : 1.0;
+  let sizeFactor = Math.max(0.25, Math.min(3.5, (weightMb / 16500) * hybridDiscount));
+  // MoE active-weight correction
+  const isMoe = arch.moe || false;
+  if (isMoe) {
+    if (key.includes("a")) {
+      const totalMatch = key.match(/(\d+)b-a(\d+)b/);
+      if (totalMatch) {
+        const totalB = +totalMatch[1];
+        const activeB = +totalMatch[2];
+        sizeFactor = Math.max(0.25, Math.min(3.5, (weightMb * activeB / totalB) / 16500));
+      }
+    } else if (key.startsWith("mixtral")) {
+      const activeB = key.includes("8x7") ? 12.5 : key.includes("8x22") ? 46 : 12.5;
+      sizeFactor = Math.max(0.25, Math.min(3.5, (activeB * 1000 / 4.3) / 16500));
+    }
+  }
   let cudaCtx, compute, fa, sync;
   if (backend === "vulkan") {
     cudaCtx = 35 * ngpu;
@@ -472,11 +487,20 @@ function estimate() {
     sync = ngpu > 1 ? 40 * sizeFactor * ngpu : 0;
   }
   let overheadMb = cudaCtx + compute + fa + sync;
-  if (offloadRatio < 0.7 && offloadRatio > 0) {
-    overheadMb *= offloadRatio;
+  // Offload scaling
+  if (offloadRatio > 0 && offloadRatio < 0.7) {
     cudaCtx *= offloadRatio; compute *= offloadRatio; fa *= offloadRatio; sync *= offloadRatio;
   }
-  overheadMb = Math.min(overheadMb, 0.25 * weightMb + 480);
+  // Mild per-component discounts (size_factor already did most of the work)
+  if (isHybrid) { cudaCtx *= 0.93; compute *= 0.93; fa *= 0.93; sync *= 0.93; }
+  if (isMoe) { cudaCtx *= 0.95; compute *= 0.95; fa *= 0.95; sync *= 0.95; }
+  overheadMb = cudaCtx + compute + fa + sync;
+  // Backend-specific ceiling
+  let ceiling;
+  if (backend === "vulkan") ceiling = 0.12 * weightMb + 220;
+  else if (backend === "rocm") ceiling = 0.18 * weightMb + 320;
+  else ceiling = 0.25 * weightMb + 480;
+  overheadMb = Math.min(overheadMb, ceiling);
 
   const modelStatic = weightOnGpu + mmprojMb + cacheMb + draftCacheMb + deltaMb;
   const modelTotal = modelStatic + overheadMb;
