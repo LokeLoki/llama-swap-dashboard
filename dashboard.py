@@ -1308,11 +1308,25 @@ def fetch_running_models(host):
                         model_file_mb = _cached_file_size(resolved)
                     except OSError:
                         pass
-            # Parse cache type from -ctk/--cache-type-k flag
-            cache_type = None
+            # Parse cache types from -ctk/--cache-type-k and -ctv/--cache-type-v
+            # Supports split KV quantization (very common: q8_0/q4_0 etc.)
+            cache_type_k = None
+            cache_type_v = None
             ctk_match = re.search(r'(?:-ctk|--cache-type-k)\s+(\S+)', cmd)
             if ctk_match:
-                cache_type = ctk_match.group(1).lower()
+                cache_type_k = ctk_match.group(1).lower()
+            ctv_match = re.search(r'(?:-ctv|--cache-type-v)\s+(\S+)', cmd)
+            if ctv_match:
+                cache_type_v = ctv_match.group(1).lower()
+
+            if cache_type_k and cache_type_v and cache_type_k != cache_type_v:
+                cache_type = f"{cache_type_k}/{cache_type_v}"
+            elif cache_type_k:
+                cache_type = cache_type_k
+            elif cache_type_v:
+                cache_type = cache_type_v
+            else:
+                cache_type = None
             # Parse max context from -c flag or --ctx-size (both forms)
             max_context = 0
             ctx_match = re.search(r'\s-c\s+(\d+)|--ctx-size\s*(\d+)', cmd)
@@ -1528,6 +1542,8 @@ def fetch_running_models(host):
                 "model_quant": model_quant,
                 "model_file_mb": model_file_mb,
                 "cache_type": cache_type,
+                "cache_type_k": cache_type_k,
+                "cache_type_v": cache_type_v,
                 "max_context": max_context,
                 "has_spec": has_spec,
                 "is_dflash": is_dflash,
@@ -1630,10 +1646,23 @@ def detect_local_servers():
                     except OSError:
                         pass
 
-            cache_type = None
+            cache_type_k = None
+            cache_type_v = None
             ctk_match = re.search(r'(?:-ctk|--cache-type-k)\s+(\S+)', cmd)
             if ctk_match:
-                cache_type = ctk_match.group(1).lower()
+                cache_type_k = ctk_match.group(1).lower()
+            ctv_match = re.search(r'(?:-ctv|--cache-type-v)\s+(\S+)', cmd)
+            if ctv_match:
+                cache_type_v = ctv_match.group(1).lower()
+
+            if cache_type_k and cache_type_v and cache_type_k != cache_type_v:
+                cache_type = f"{cache_type_k}/{cache_type_v}"
+            elif cache_type_k:
+                cache_type = cache_type_k
+            elif cache_type_v:
+                cache_type = cache_type_v
+            else:
+                cache_type = None
 
             max_context = 0
             ctx_match = re.search(r'\s-c\s+(\d+)|--ctx-size\s*(\d+)', cmd)
@@ -1714,6 +1743,8 @@ def detect_local_servers():
                 "draft_file_mb": draft_file_mb,
                 "max_context": max_context,
                 "cache_type": cache_type,
+                "cache_type_k": cache_type_k,
+                "cache_type_v": cache_type_v,
                 "cache_ram_mb": -1,
                 "cmd": cmd,
                 "host": f"http://localhost:{port}",
@@ -1859,40 +1890,51 @@ def find_model_arch(model_path, model_quant):
 
 def calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, num_tokens, iswa_window=None, effective_layers=None, gemma4_kv=False, gemma4_geometry=None):
     """Calculate KV cache size in MB.
-    Formula: 2 * layers * kv_heads * head_dim * cache_bytes * tokens / 1MB
-    With iSWA: effective layers = layers/2 + layers/2 * min(ctx/window, 1)
-    With effective_layers: overrides 'layers' for KV-bearing layers (e.g. Qwen 3.5/3.6 DeltaNet).
-    With gemma4_kv: Gemma 4 global layers reuse keys as values → 50% reduction on global cache.
-    With gemma4_geometry: dual-geometry formula (sliding + global computed separately).
-    Gemma 2: 1:1 global/sliding ratio (50% global).
-    Gemma 3/4: 5:1 local/global ratio (~17% global). E2B uses 4:1."""
-    # Gemma 4 dual-geometry: compute sliding and global separately
+
+    cache_bytes may be:
+      - a single float          → classic same-type K+V  (2 * cache_bytes)
+      - a (k_bytes, v_bytes) pair → split quantization   (k_bytes + v_bytes)
+
+    With iSWA: most layers only keep a sliding window.
+    With effective_layers: only the attention layers of hybrid models pay full KV cost.
+    With gemma4_geometry: dual-geometry (sliding + global) computed separately.
+    """
+    # Normalise to a single "bytes per element for one token across K+V"
+    if isinstance(cache_bytes, (tuple, list)) and len(cache_bytes) == 2:
+        bytes_per_element = float(cache_bytes[0]) + float(cache_bytes[1])
+    else:
+        bytes_per_element = 2.0 * float(cache_bytes)
+
+    # Gemma 4 dual-geometry path
     if gemma4_geometry is not None:
         sliding = gemma4_geometry["sliding"]
         global_cfg = gemma4_geometry["global"]
         window = gemma4_geometry["window"]
         k_eq_v = global_cfg.get("k_eq_v", False)
-        # Sliding: 2 × n × kv × dim × bytes × min(tokens, window)
-        sliding_mb = 2 * sliding["n"] * sliding["kv_heads"] * sliding["head_dim"] * cache_bytes * min(num_tokens, window)
-        # Global: n × kv × dim × bytes × tokens (×1 only when k_eq_v, ×2 otherwise)
-        global_multiplier = 1 if k_eq_v else 2
-        global_mb = global_multiplier * global_cfg["n"] * global_cfg["kv_heads"] * global_cfg["head_dim"] * cache_bytes * num_tokens
+
+        sliding_mb = (sliding["n"] * sliding["kv_heads"] * sliding["head_dim"]
+                      * bytes_per_element * min(num_tokens, window))
+
+        global_bpe = (bytes_per_element * 0.5) if k_eq_v else bytes_per_element
+        global_mb = (global_cfg["n"] * global_cfg["kv_heads"] * global_cfg["head_dim"]
+                     * global_bpe * num_tokens)
+
         return (sliding_mb + global_mb) / (1024 * 1024)
-    # Determine which layers to use
+
+    # Standard / iSWA / hybrid path
     kv_layers = effective_layers if effective_layers is not None else layers
+
     if iswa_window is not None and iswa_window > 0:
-        # Interleaved sliding window: most layers cache only the window, few cache full context
-        # Gemma 2: 1:1 ratio → half global, half sliding
-        # Gemma 3/4: 5:1 ratio → ~1/6 global, ~5/6 sliding (E2B uses 4:1)
-        global_ratio = 6 if iswa_window <= 1024 else 2  # Gemma 3/4=6, Gemma 2=2
+        global_ratio = 6 if iswa_window <= 1024 else 2
         global_layers = kv_layers // global_ratio
         sliding_layers = kv_layers - global_layers
-        # Gemma 4 global layers use K=V (keys reused as values) → 50% reduction on global cache
         global_cache_ratio = 0.5 if gemma4_kv else 1.0
-        effective_tokens = global_layers * num_tokens * global_cache_ratio + sliding_layers * min(num_tokens, iswa_window)
-        bytes_total = 2 * kv_heads * head_dim * cache_bytes * effective_tokens
+        effective_tokens = (global_layers * num_tokens * global_cache_ratio
+                            + sliding_layers * min(num_tokens, iswa_window))
+        bytes_total = kv_heads * head_dim * bytes_per_element * effective_tokens
     else:
-        bytes_total = 2 * kv_layers * kv_heads * head_dim * cache_bytes * num_tokens
+        bytes_total = kv_layers * kv_heads * head_dim * bytes_per_element * num_tokens
+
     return bytes_total / (1024 * 1024)
 
 
@@ -1907,13 +1949,21 @@ def _parse_spec_draft_n_max(cmd):
     return 0
 
 
-def get_cache_bytes(cache_type, model_quant):
-    """Determine bytes per element for KV cache.
-    Uses explicit cache type if set, otherwise defaults to F16 (llama.cpp default)."""
-    if cache_type and cache_type in QUANT_CACHE_BYTES:
-        return QUANT_CACHE_BYTES[cache_type]
-    # Default to F16 (2.0) — llama.cpp's default when -ctk is not set
-    return 2.0
+def get_cache_bytes(cache_type_k, cache_type_v=None, model_quant=None):
+    """Return (k_bytes, v_bytes) per element for the KV cache.
+
+    - When only one type is given, both K and V use it (classic behaviour).
+    - When both are given and differ, split quantization is used.
+    - Default is F16 (2.0) — matches llama.cpp when -ctk/-ctv are absent.
+    """
+    def _one(ct):
+        if ct and ct in QUANT_CACHE_BYTES:
+            return QUANT_CACHE_BYTES[ct]
+        return 2.0
+
+    k_bytes = _one(cache_type_k)
+    v_bytes = _one(cache_type_v) if cache_type_v is not None else k_bytes
+    return k_bytes, v_bytes
 
 
 # Active state labels that rotate randomly when the model is working
@@ -2036,14 +2086,21 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     ctx_size = active.get("max_context", 0)
     if ctx_size == 0:
         ctx_size = 4096  # stable default when -c / --ctx-size is missing
-    # Get cache bytes
-    cache_bytes = get_cache_bytes(active["cache_type"], active["model_quant"])
+    # Get cache bytes (supports split KV quantization)
+    cache_bytes = get_cache_bytes(
+        active.get("cache_type_k"),
+        active.get("cache_type_v"),
+        active.get("model_quant"),
+    )
     # Calculate reserved KV cache (full --ctx-size budget)
     if is_mla:
-        # MLA: ~70 KB/token at FP16/BF16 (compressed key/value + RoPE keys).
-        # Scales linearly with cache quantization — q8_0 halves the cache, etc.
         mla_base_mb = 70.0 * ctx_size / (1024)
-        cache_mb = mla_base_mb * (cache_bytes / 2.0)
+        # cache_bytes is now (k, v) tuple; use average for MLA scaling
+        if isinstance(cache_bytes, (tuple, list)) and len(cache_bytes) == 2:
+            avg_bytes = (cache_bytes[0] + cache_bytes[1]) / 2.0
+        else:
+            avg_bytes = float(cache_bytes)
+        cache_mb = mla_base_mb * (avg_bytes / 2.0)
     else:
         cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, effective_layers, gemma4_kv, gemma4_geometry)
     # MTP / draft KV cache: depends on whether this is bundled MTP (lightweight),
