@@ -252,8 +252,8 @@ MODEL_ARCHITECTURES = {
     "phi-3.5":           (32, 32, 96),
     "phi-3":             (32, 32, 96),
     # Command-R family
-    "command-r-plus":    (64, 8, 128),
-    "command-r":         (32, 8, 128),
+    "command-r-plus":    (64, 96, 128),
+    "command-r":         (40, 64, 128),
     # Yi family
     "yi-34b":            (60, 8, 128),
     "yi-9b":             (32, 8, 128),
@@ -389,11 +389,16 @@ def _parse_batch_flags(cmd, default_batch=2048, default_ubatch=512):
 
 
 def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size,
-                              model_weight_mb=None, model_name="", backend=None):
+                              model_weight_mb=None, model_name="", backend=None,
+                              flash_attn_enabled=True):
     """Runtime overhead beyond static model+KV. Backend-aware.
 
     Returns dict with cuda_context_mb, compute_buffer_mb, flash_attn_mb,
     tensor_sync_mb, total_mb.
+
+    flash_attn_enabled: when True (-fa flag), compute buffer shrinks because
+    the full QK matrix isn't materialized. When False, extra materialization
+    overhead is added to compute buffer.
     """
     if not gpus or num_active_gpus <= 0:
         return {"cuda_context_mb": 0, "compute_buffer_mb": 0,
@@ -438,6 +443,9 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
         fixed_context = 35.0 * num_active_gpus
 
         compute_per_gpu = (28.0 + ubatch_size * 0.45) * size_factor
+        # Flash attn on: no full matrix materialization → smaller buffer
+        if not flash_attn_enabled:
+            compute_per_gpu += 20.0 * size_factor  # materialization overhead
         compute_buffer_total = compute_per_gpu * num_active_gpus
 
         if ctx_size > 32768:
@@ -472,6 +480,9 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
         fixed_context = 90.0 * num_active_gpus
 
         compute_per_gpu = (50.0 + ubatch_size * 0.70) * size_factor
+        # Flash attn on: no full matrix materialization → smaller buffer
+        if not flash_attn_enabled:
+            compute_per_gpu += 30.0 * size_factor  # materialization overhead
         compute_buffer_total = compute_per_gpu * num_active_gpus
 
         if ctx_size > 16384:
@@ -499,6 +510,9 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
     cuda_context_total = 220.0 * num_active_gpus
 
     compute_per_gpu = (65.0 + ubatch_size * 0.80) * size_factor
+    # Flash attn on: no full matrix materialization → smaller buffer
+    if not flash_attn_enabled:
+        compute_per_gpu += 40.0 * size_factor  # materialization overhead
     compute_buffer_total = compute_per_gpu * num_active_gpus
 
     if ctx_size > 8192:
@@ -1991,10 +2005,26 @@ def auto_detect_model_traits(model_path, cmd_str, n_layers=0):
     name = (model_path or "").lower()
     cmd = (cmd_str or "").lower()
 
-    # 1. MoE detection — reliable on 2026 naming conventions
+    # 1. MoE detection — multi-source, reliable on 2026 naming conventions
+    # Primary: filename patterns (param counts, model family names)
     is_moe = any(x in name for x in (
-        "a3b", "a4b", "moe", "mixtral", "qwen3.6-35b", "gemma-4-26b"
+        "a3b", "a4b", "a5b", "a6b", "a7b", "a8b", "a10b", "a12b", "a14b", "a16b",
+        "a17b", "a20b", "a22b", "a24b", "a32b",
+        "moe", "mixtral", "gemma-4-26b"
     ))
+    # Secondary: known MoE model families (catches naming variants)
+    if not is_moe:
+        is_moe = any(k in name for k in (
+            "qwen3.6-35b", "qwen3.6-122b", "qwen3.5-35b", "qwen3.5-122b",
+            "qwen3.5-397b", "gemma3.6",
+        ))
+    # Tertiary: match against known MoE keys in MODEL_ARCHITECTURES
+    if not is_moe:
+        clean_name = re.sub(r'[-._]', '', name)
+        for key in MODEL_ARCHITECTURES:
+            if any(x in key for x in ("mixtral", "codestral")) and key.replace("-", "").replace(".", "") in clean_name:
+                is_moe = True
+                break
 
     # 2. Hybrid detection — model name + existing architecture tables
     is_hybrid = (
@@ -2205,12 +2235,9 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     else:
         offload_ratio = 1.0  # unknown arch → assume full GPU
 
-    # Check for -ot / --override-tensor: treat as "almost full GPU"
+    # Check for -ot / --override-tensor
     has_override_tensor = bool(re.search(r'(-ot|--override-tensor)\s', active.get("cmd", "")))
 
-    # Residual tensors that stay on GPU even under partial -ngl
-    # (token_embd + lm_head/output + a few norms).
-    # Size-aware: classic dense ≈ 2.1 layers worth, hybrid ≈ 1.6 layers.
     # Auto-detect model traits from path and command line
     traits = auto_detect_model_traits(active["model_path"], active.get("cmd", ""), layers)
     is_hybrid = traits["is_hybrid"]
@@ -2225,14 +2252,18 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
 
     per_layer_mb = (weight_mb / layers) if layers and layers > 0 else 0
     if layers and per_layer_mb > 0:
+        # Residual tensors that stay on GPU even under partial -ngl
+        # (token_embd + lm_head/output + a few norms).
+        # Size-aware: classic dense ≈ 2.1 layers worth, hybrid ≈ 1.6 layers.
         residual_layers = 1.6 if is_hybrid else 2.1
         EMBEDDING_FIXED_MB = max(400.0, min(4500.0, per_layer_mb * residual_layers))
     else:
         EMBEDDING_FIXED_MB = 1300.0  # fallback
 
+    # -ot / --override-tensor: large tensors (experts, lm_head) stay on CPU.
+    # This REDUCES GPU VRAM vs naive partial offload.
     if has_override_tensor and 0.0 < offload_ratio < 1.0:
-        # -ot keeps KV on GPU + most weights; treat as ~90% offload
-        offload_ratio = max(offload_ratio, 0.9)
+        offload_ratio = min(offload_ratio, 0.6)
 
     if 0.0 < offload_ratio < 1.0:
         scalable = max(0.0, weight_mb - EMBEDDING_FIXED_MB)
@@ -2284,16 +2315,24 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     # Safety cap: can't exceed total GPU count
     if gpus and num_active_gpus > len(gpus):
         num_active_gpus = len(gpus)
+    # Detect -fa / --flash-attn from command line
+    fa_match = re.search(r'(?:-fa|--flash-attn)(?:\s|$|--)', cmd_str)
+    flash_attn_on = bool(fa_match)
+
     overhead = estimate_runtime_overhead(
         gpus, batch_size, ubatch_size, num_active_gpus, ctx_size,
         weight_mb, active["model_path"],
-        backend=detect_llama_backend(active.get("cmd", ""))
+        backend=detect_llama_backend(active.get("cmd", "")),
+        flash_attn_enabled=flash_attn_on,
     )
-    # Scale runtime overhead down when offload is heavy (compute buffers shrink)
-    if offload_ratio < 0.7 and offload_ratio > 0.0:
-        overhead["total_mb"] *= offload_ratio
+    # Scale runtime overhead down when offload is heavy (compute buffers shrink).
+    # Smooth transition instead of a hard cliff at 0.7 — avoids discontinuity.
+    if 0.0 < offload_ratio < 1.0:
+        # sigmoid-like curve: barely scales above 0.8, fully scales below 0.3
+        scale_factor = max(0.3, min(1.0, offload_ratio * 1.4 - 0.2))
+        overhead["total_mb"] *= scale_factor
         for key in ("cuda_context_mb", "compute_buffer_mb", "flash_attn_mb", "tensor_sync_mb"):
-            overhead[key] *= offload_ratio
+            overhead[key] *= scale_factor
     # Mild extra discount for hybrid / MoE — size_factor inside estimate_runtime_overhead
     # already did most of the work, so these are gentle nudges to avoid double-discounting.
     if is_hybrid:
