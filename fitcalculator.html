@@ -274,8 +274,8 @@ const ARCH = {
   // Others
   "phi-4":            { layers:40, kv:10, dim:128, kind:"dense", w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,iq4_xs:7500,f16:28000} },
   "phi-3.5":          { layers:32, kv:32, dim:96,  kind:"dense", w:{q4_k_m:2200,q5_k_m:2600,q6_k:3100,q8_0:4000,iq4_xs:2000,f16:7500} },
-  "command-r-plus":   { layers:64, kv:8, dim:128, kind:"dense", w:{q4_k_m:55000,q5_k_m:66000,q6_k:78000,q8_0:100000,iq4_xs:50000,f16:200000} },
-  "command-r":        { layers:32, kv:8, dim:128, kind:"dense", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
+  "command-r-plus":   { layers:64, kv:96, dim:128, kind:"dense", w:{q4_k_m:55000,q5_k_m:66000,q6_k:78000,q8_0:100000,iq4_xs:50000,f16:200000} },
+  "command-r":        { layers:40, kv:64, dim:128, kind:"dense", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
   "yi-34b":           { layers:60, kv:8, dim:128, kind:"dense", w:{q4_k_m:19000,q5_k_m:23000,q6_k:27000,q8_0:35000,iq4_xs:17000,f16:68000} },
   "nemotron-h-56b":   { layers:118, kv:8, dim:128, kind:"hybrid", eff:10, w:{q4_k_m:30000,q5_k_m:36000,q6_k:42000,q8_0:55000,iq4_xs:27000,f16:110000} },
   "nemotron-h-8b":    { layers:52, kv:8, dim:128, kind:"hybrid", eff:5, w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,iq4_xs:4200,f16:16000} },
@@ -422,7 +422,7 @@ function estimate() {
 
   // offload
   let offloadRatio = Math.max(0, Math.min(ngl, layers)) / layers;
-  if (useOt && offloadRatio > 0 && offloadRatio < 1) offloadRatio = Math.max(offloadRatio, 0.9);
+  if (useOt && offloadRatio > 0 && offloadRatio < 1) offloadRatio = Math.min(offloadRatio, 0.6);
 
   const isHybrid = arch.kind === "hybrid";
   const residualLayers = isHybrid ? 1.6 : 2.1;
@@ -486,10 +486,17 @@ function estimate() {
     } else fa = 0;
     sync = ngpu > 1 ? 40 * sizeFactor * ngpu : 0;
   }
+  // FA on: no full QK materialization → compute buffer stays lean
+  // FA off: extra materialization overhead added to compute
+  if (!useFa) {
+    const matExtra = (backend === "cuda" ? 40 : backend === "rocm" ? 30 : 20) * sizeFactor * ngpu;
+    compute += matExtra;
+  }
   let overheadMb = cudaCtx + compute + fa + sync;
-  // Offload scaling
-  if (offloadRatio > 0 && offloadRatio < 0.7) {
-    cudaCtx *= offloadRatio; compute *= offloadRatio; fa *= offloadRatio; sync *= offloadRatio;
+  // Offload scaling — smooth transition, no hard cliff
+  if (offloadRatio > 0 && offloadRatio < 1) {
+    const scaleFactor = Math.max(0.3, Math.min(1.0, offloadRatio * 1.4 - 0.2));
+    cudaCtx *= scaleFactor; compute *= scaleFactor; fa *= scaleFactor; sync *= scaleFactor;
   }
   // Mild per-component discounts (size_factor already did most of the work)
   if (isHybrid) { cudaCtx *= 0.93; compute *= 0.93; fa *= 0.93; sync *= 0.93; }
