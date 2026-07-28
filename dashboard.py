@@ -589,11 +589,6 @@ def detect_gpu_backend():
 HAS_NVIDIA = _has_smi("nvidia-smi")
 HAS_AMD = _has_smi("amd-smi")
 BACKEND = detect_gpu_backend()
-if HAS_NVIDIA:
-    try:
-        subprocess.run(["nvidia-smi", "-pm", "1"], stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, timeout=5)
-    except (subprocess.SubprocessError, OSError, FileNotFoundError):
-        pass
 
 
 def detect_llama_backend(cmd):
