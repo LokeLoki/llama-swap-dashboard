@@ -426,7 +426,7 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
             size_factor = max(0.25, min((active_b * 1000.0 / 4.3) / base_weight_mb, 3.5))
     elif any(k in path_lower for k in ("qwen3.6", "qwen3.5-27b", "qwen3.5-9b",
                                         "qwen3.5-8b", "ornith", "bonsai")):
-        size_factor *= 0.70   # hybrid linear-attn discount
+        size_factor *= 0.75   # hybrid linear-attn discount
 
     if backend is None:
         backend = BACKEND or "cuda"
@@ -2294,15 +2294,16 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         overhead["total_mb"] *= offload_ratio
         for key in ("cuda_context_mb", "compute_buffer_mb", "flash_attn_mb", "tensor_sync_mb"):
             overhead[key] *= offload_ratio
-    # Hybrid models have lower activation/scratch cost; MoE sparse activation reduces peak
+    # Mild extra discount for hybrid / MoE — size_factor inside estimate_runtime_overhead
+    # already did most of the work, so these are gentle nudges to avoid double-discounting.
     if is_hybrid:
-        overhead["total_mb"] *= 0.82
+        overhead["total_mb"] *= 0.93
         for key in ("cuda_context_mb", "compute_buffer_mb", "flash_attn_mb", "tensor_sync_mb"):
-            overhead[key] *= 0.82
+            overhead[key] *= 0.93
     if is_moe:
-        overhead["total_mb"] *= 0.90
+        overhead["total_mb"] *= 0.95
         for key in ("cuda_context_mb", "compute_buffer_mb", "flash_attn_mb", "tensor_sync_mb"):
-            overhead[key] *= 0.90
+            overhead[key] *= 0.95
     overhead["total_mb"] = sum(overhead[k] for k in ("cuda_context_mb", "compute_buffer_mb", "flash_attn_mb", "tensor_sync_mb"))
 
     total_vram_mb = static_mb + overhead["total_mb"]
