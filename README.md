@@ -6,8 +6,6 @@ A clean terminal dashboard that shows real-time GPU stats, model VRAM estimates,
 
 > Live memory from `nvidia-smi` / `amd-smi` is always authoritative. The built-in VRAM estimate is a planning aid.
 
-<img width="519" height="1209" alt="image" src="https://github.com/user-attachments/assets/6c41e8f6-ac79-4f92-be94-42d7a234c56e" />
-
 ## Requirements
 
 - Python 3.8+ (stdlib only — no extra packages)
@@ -32,6 +30,8 @@ Optional: place the script next to your llama-swap `config.yaml` for richer mode
 - **Recent prompts** — Rolling log with decode/prompt speeds, tokens, and cache hits
 - **Speculative decoding** — Live acceptance rate when active (MTP, draft models, DFlash, etc.)
 - **Session totals** — Cumulative input / output tokens and request count
+
+<img width="519" height="1209" alt="image" src="https://github.com/user-attachments/assets/6c41e8f6-ac79-4f92-be94-42d7a234c56e" />
 
 ## Auto-Detection
 
