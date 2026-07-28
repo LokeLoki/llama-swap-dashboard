@@ -1351,6 +1351,8 @@ def fetch_running_models(host):
                         mmproj_file_mb = _cached_file_size(resolved)
                     except OSError:
                         pass
+            # Parse --no-mmproj-offload: when set, mmproj stays on CPU
+            no_mmproj_offload = bool(re.search(r'--no-mmproj-offload', cmd))
             # Parse --model-draft path from cmd
             draft_path = ""
             draft_match = RE_DRAFT_PATH_Q.search(cmd)
@@ -1549,6 +1551,7 @@ def fetch_running_models(host):
                 "is_dflash": is_dflash,
                 "mmproj_path": mmproj_path,
                 "mmproj_file_mb": mmproj_file_mb,
+                "no_mmproj_offload": no_mmproj_offload,
                 "draft_path": draft_path,
                 "draft_file_mb": draft_file_mb,
                 "spec_draft_n_max": spec_draft_n_max if has_spec else 0,
@@ -1717,6 +1720,8 @@ def detect_local_servers():
                         mmproj_file_mb = _cached_file_size(resolved)
                     except OSError:
                         pass
+            # Parse --no-mmproj-offload: when set, mmproj stays on CPU
+            no_mmproj_offload = bool(re.search(r'--no-mmproj-offload', cmd))
 
             # Parse --model-draft path from cmd
             draft_path = ""
@@ -1740,6 +1745,7 @@ def detect_local_servers():
                 "model_quant": model_quant or "unknown",
                 "model_file_mb": model_file_mb,
                 "mmproj_file_mb": mmproj_file_mb,
+                "no_mmproj_offload": no_mmproj_offload,
                 "draft_file_mb": draft_file_mb,
                 "max_context": max_context,
                 "cache_type": cache_type,
@@ -2080,6 +2086,9 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         return None
     # Get mmproj size (if --mmproj is set)
     mmproj_mb = active.get("mmproj_file_mb", 0)
+    # --no-mmproj-offload: projector stays on CPU → 0 GPU VRAM
+    if active.get("no_mmproj_offload"):
+        mmproj_mb = 0
     # Get draft model weight size (if --model-draft is set)
     draft_mb = active.get("draft_file_mb", 0)
     # Get reserved context size from --ctx-size (-c flag)
@@ -2934,6 +2943,8 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sy
         lines.append(f"  {DIM}KV cache{RESET}     {DIM_CYAN}{k:7.2f}{RESET} {WHITE}GB{RESET}  {DIM}({main_vram_info.cache_type}){RESET}")
     if m > 0.01:
         lines.append(f"  {DIM}mmproj{RESET}       {DIM_CYAN}{m:7.2f}{RESET} {WHITE}GB{RESET}")
+    elif active.get("no_mmproj_offload"):
+        lines.append(f"  {DIM}mmproj{RESET}       {DIM}0.00{RESET} {WHITE}GB{RESET}  {DIM}(CPU){RESET}")
     if d > 0.01:
         lines.append(f"  {DIM}draft{RESET}        {DIM_CYAN}{d:7.2f}{RESET} {WHITE}GB{RESET}")
     lines.append(f"  {DIM}Static{RESET}       {DIM_CYAN}{static:7.2f}{RESET} {WHITE}GB{RESET}")
