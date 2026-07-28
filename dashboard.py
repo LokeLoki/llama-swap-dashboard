@@ -1985,6 +1985,45 @@ def get_inference_state(valid_metrics, gpus):
     return "active" if active_gpus else "idle"
 
 
+def auto_detect_model_traits(model_path, cmd_str, n_layers=0):
+    """Auto-detect model traits from path and command line for accurate estimation.
+    Returns dict with is_moe, is_hybrid, expert_offload_ratio, prefer_aggressive_kv."""
+    name = (model_path or "").lower()
+    cmd = (cmd_str or "").lower()
+
+    # 1. MoE detection — reliable on 2026 naming conventions
+    is_moe = any(x in name for x in (
+        "a3b", "a4b", "moe", "mixtral", "qwen3.6-35b", "gemma-4-26b"
+    ))
+
+    # 2. Hybrid detection — model name + existing architecture tables
+    is_hybrid = (
+        any(k in name for k in ("qwen3.5", "qwen3.6", "qwen3-5", "qwen3-6", "bonsai", "ornith"))
+        or name in QWEN_HYBRID_LAYERS
+    )
+
+    # 3. Expert offload ratio — pure auto from flags
+    expert_offload_ratio = 0.0
+    if is_moe:
+        if "--cpu-moe" in cmd:
+            expert_offload_ratio = 1.0
+        else:
+            m = re.search(r"--n-cpu-moe\s+(\d+)", cmd)
+            if m and n_layers > 0:
+                n = int(m.group(1))
+                expert_offload_ratio = min(1.0, n / n_layers)
+
+    # 4. Cache quant preference — hybrid/MoE users almost always lower KV quant
+    prefer_aggressive_kv = is_hybrid or is_moe
+
+    return {
+        "is_moe": is_moe,
+        "is_hybrid": is_hybrid,
+        "expert_offload_ratio": expert_offload_ratio,
+        "prefer_aggressive_kv": prefer_aggressive_kv,
+    }
+
+
 def get_aux_state(aux_info, aux_port, ollama_active=None):
     """Detect if the auxiliary model is currently active.
     Uses cached ollama_active state to avoid repeated API calls.
@@ -2172,8 +2211,19 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     # Residual tensors that stay on GPU even under partial -ngl
     # (token_embd + lm_head/output + a few norms).
     # Size-aware: classic dense ≈ 2.1 layers worth, hybrid ≈ 1.6 layers.
+    # Auto-detect model traits from path and command line
+    traits = auto_detect_model_traits(active["model_path"], active.get("cmd", ""), layers)
+    is_hybrid = traits["is_hybrid"]
+    is_moe = traits["is_moe"]
+    expert_offload_ratio = traits["expert_offload_ratio"]
+
+    # MoE expert offload: --cpu-moe or --n-cpu-moe N
+    if is_moe and expert_offload_ratio > 0.0:
+        # Experts are ~75% of total file size; offloaded experts leave GPU VRAM
+        expert_frac = 0.75
+        weight_mb = weight_mb * (1.0 - expert_frac * expert_offload_ratio)
+
     per_layer_mb = (weight_mb / layers) if layers and layers > 0 else 0
-    is_hybrid = any(k in path_lower for k in ("qwen3.6", "qwen3.5", "bonsai", "ornith"))
     if layers and per_layer_mb > 0:
         residual_layers = 1.6 if is_hybrid else 2.1
         EMBEDDING_FIXED_MB = max(400.0, min(4500.0, per_layer_mb * residual_layers))
@@ -2244,6 +2294,15 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         overhead["total_mb"] *= offload_ratio
         for key in ("cuda_context_mb", "compute_buffer_mb", "flash_attn_mb", "tensor_sync_mb"):
             overhead[key] *= offload_ratio
+    # Hybrid models have lower activation/scratch cost; MoE sparse activation reduces peak
+    if is_hybrid:
+        overhead["total_mb"] *= 0.82
+        for key in ("cuda_context_mb", "compute_buffer_mb", "flash_attn_mb", "tensor_sync_mb"):
+            overhead[key] *= 0.82
+    if is_moe:
+        overhead["total_mb"] *= 0.90
+        for key in ("cuda_context_mb", "compute_buffer_mb", "flash_attn_mb", "tensor_sync_mb"):
+            overhead[key] *= 0.90
     overhead["total_mb"] = sum(overhead[k] for k in ("cuda_context_mb", "compute_buffer_mb", "flash_attn_mb", "tensor_sync_mb"))
 
     total_vram_mb = static_mb + overhead["total_mb"]
@@ -2969,6 +3028,23 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sy
                 f"  {DIM}Offload      {RESET}{DIM_CYAN}{cpu_mb / 1024:.1f}{RESET} {WHITE}GB{RESET} "
                 f"{DIM}on CPU  ·  ngl {gpu_l}/{main_vram_info.layers}{RESET}{residual_str}"
             )
+
+    # MoE expert offload display
+    cmd_str = running_models[0].get("cmd", "") if running_models else ""
+    model_path = (running_models[0].get("model_path") if running_models else "") or ""
+    traits = auto_detect_model_traits(model_path, cmd_str, main_vram_info.layers)
+    is_moe = traits["is_moe"]
+    expert_offload_ratio = traits["expert_offload_ratio"]
+    if is_moe and expert_offload_ratio > 0.0:
+        expert_str = ""
+        if "--cpu-moe" in cmd_str.lower():
+            expert_str = " (all experts on CPU)"
+        elif expert_offload_ratio < 1.0:
+            n_cpu = int(main_vram_info.layers * expert_offload_ratio)
+            expert_str = f" ({n_cpu} experts on CPU)"
+        else:
+            expert_str = f" (all {main_vram_info.layers} experts on CPU)"
+        lines.append(f"  {DIM}MoE experts  {RESET}{WHITE}{expert_str}{RESET}")
 
     # Backend
     backend_display = (BACKEND or "unknown").upper()
