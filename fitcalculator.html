@@ -98,58 +98,38 @@
     color: var(--accent);
   }
   /* Model scan / drop zone */
-  .scan-row {
-    display: flex;
-    gap: 8px;
-    margin-bottom: 10px;
-    flex-wrap: wrap;
-  }
-  .scan-row button {
-    background: var(--input);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 6px;
-    padding: 6px 12px;
-    font-size: 0.85rem;
-    cursor: pointer;
-    transition: background 0.15s, border-color 0.15s;
-  }
-  .scan-row button:hover {
-    background: var(--border);
-    border-color: var(--accent2);
-  }
-  .scan-row button.primary {
-    background: #1f6feb22;
-    border-color: #1f6feb;
-    color: var(--accent2);
-  }
   .drop-zone {
     border: 1px dashed var(--border);
     border-radius: 6px;
-    padding: 16px 14px;
+    padding: 14px;
     text-align: center;
     color: var(--muted);
     font-size: 0.82rem;
     margin-bottom: 10px;
     transition: border-color 0.15s, background 0.15s;
-    cursor: pointer;
     background: #161b2244;
   }
-  .drop-zone:active, .drop-zone.dragover {
+  .drop-zone.dragover {
     border-color: var(--accent2);
     background: #1f6feb15;
     color: var(--accent2);
   }
-  .drop-zone .browse-btn {
-    display: inline-block;
+  .drop-zone button {
     background: var(--input);
     border: 1px solid var(--border);
+    color: var(--text);
     border-radius: 6px;
-    padding: 8px 16px;
-    font-size: 0.88rem;
+    padding: 6px 12px;
+    font-size: 0.82rem;
+    cursor: pointer;
+  }
+  .drop-zone button.primary {
+    background: #1f6feb22;
+    border-color: #1f6feb;
     color: var(--accent2);
-    margin-top: 6px;
-    pointer-events: none;
+  }
+  .drop-zone button:hover {
+    background: var(--border);
   }
   .model-list {
     max-height: 160px;
@@ -210,15 +190,21 @@
         </div>
       </label>
 
-      <div class="scan-row">
-        <button type="button" id="scanFolderBtn" class="primary" style="display:none">
-          Scan models folder
-        </button>
-        <button type="button" id="clearScanBtn" style="display:none">Clear</button>
-      </div>
+      <label class="row full">
+        <span>Model path</span>
+        <input type="text" id="modelPath" placeholder="./models/model.gguf" spellcheck="false"
+               style="font-family:ui-monospace,monospace;font-size:0.85rem;background:var(--input);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 8px;width:100%">
+      </label>
+
       <div id="dropZone" class="drop-zone">
-        <div>Drop .gguf file(s) here</div>
-        <div class="browse-btn">Tap to browse</div>
+        <div style="margin-bottom:6px">Drop .gguf file(s) here</div>
+        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
+          <button type="button" id="scanFolderBtn" class="primary" style="display:none">
+            Scan models folder
+          </button>
+          <button type="button" id="browseBtn">Browse files</button>
+          <button type="button" id="clearScanBtn" style="display:none">Clear</button>
+        </div>
         <input type="file" id="ggufInput" accept=".gguf" multiple hidden>
       </div>
       <div id="modelList" class="model-list" style="display:none"></div>
@@ -532,6 +518,11 @@ function osOverheadMb() {
 let scannedModels = []; // { name, sizeGb, file }
 let activeModelFileName = null;
 
+function buildModelPath(filename) {
+  const prefix = localStorage.getItem("ggufPathPrefix") || "./models/";
+  return prefix.replace(/\/?$/, "/") + filename;
+}
+
 function canUseFolderPicker() {
   return "showDirectoryPicker" in window;
 }
@@ -582,7 +573,9 @@ function guessArchAndQuant(filename) {
 }
 
 function applyModel(model) {
-  activeModelFileName = model.name;
+  const path = buildModelPath(model.name);
+  activeModelFileName = path;
+  $("modelPath").value = path;
   $("weightOverride").value = model.sizeGb;
   const guess = guessArchAndQuant(model.name);
   if (guess.arch && ARCH[guess.arch]) {
@@ -670,11 +663,18 @@ function initScanner() {
   clearBtn.addEventListener("click", () => {
     scannedModels = [];
     activeModelFileName = null;
+    $("modelPath").value = "";
     renderModelList();
     $("weightOverride").value = "";
     estimate();
   });
-  dropZone.addEventListener("click", () => input.click());
+  $("browseBtn").addEventListener("click", (e) => {
+    e.stopPropagation();
+    $("ggufInput").click();
+  });
+  dropZone.addEventListener("click", (e) => {
+    if (e.target.tagName !== "BUTTON") $("ggufInput").click();
+  });
   input.addEventListener("change", () => handleFiles(input.files));
   dropZone.addEventListener("dragover", e => {
     e.preventDefault();
@@ -685,6 +685,19 @@ function initScanner() {
     e.preventDefault();
     dropZone.classList.remove("dragover");
     handleFiles(e.dataTransfer.files);
+  });
+  $("modelPath").addEventListener("change", () => {
+    const val = $("modelPath").value.trim();
+    if (val) {
+      if (val.includes("/") || val.includes("\\")) {
+        const lastSlash = Math.max(val.lastIndexOf("/"), val.lastIndexOf("\\"));
+        localStorage.setItem("ggufPathPrefix", val.substring(0, lastSlash + 1));
+      }
+      activeModelFileName = val;
+    } else {
+      activeModelFileName = null;
+    }
+    estimate();
   });
 }
 
@@ -708,9 +721,9 @@ function updateCliCommand(key, arch) {
   // Build flag array (no trailing backslashes — handled at render time)
   const flags = [];
   flags.push(`llama-server`);
-  const modelPath = activeModelFileName
-    ? activeModelFileName
-    : `<path-to-${key}.gguf>`;
+  const modelPath = ($("modelPath") && $("modelPath").value.trim())
+    || activeModelFileName
+    || `<path-to-${key}.gguf>`;
   flags.push(`-m ${modelPath}`);
   flags.push(`-c ${ctx}`);
   // Skip -ngl when full offload (llama-server default = all layers on GPU)
