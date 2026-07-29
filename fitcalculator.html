@@ -58,6 +58,45 @@
   }
   .fit-ok { color: var(--accent); } .fit-tight { color: var(--warn); } .fit-no { color: var(--danger); }
   .arch-meta { font-size: 0.8rem; color: var(--muted); margin: -4px 0 10px; min-height: 1.2em; }
+  /* Generated CLI Command */
+  .cmd-box {
+    position: relative;
+    background: #0d1117;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px 12px;
+    margin-top: 6px;
+  }
+  .cmd-box pre {
+    margin: 0;
+    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.78rem;
+    color: var(--accent2);
+    white-space: pre-wrap;
+    word-break: break-all;
+    padding-right: 60px;
+    line-height: 1.55;
+  }
+  .cmd-box button {
+    position: absolute;
+    top: 8px;
+    right: 8px;
+    background: var(--input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 4px;
+    padding: 3px 9px;
+    font-size: 0.72rem;
+    cursor: pointer;
+    transition: background 0.15s, color 0.15s;
+  }
+  .cmd-box button:hover {
+    background: var(--border);
+    color: var(--accent);
+  }
+  .cmd-box button.copied {
+    color: var(--accent);
+  }
 </style>
 </head>
 <body>
@@ -199,6 +238,11 @@
       <div class="result-sub" id="fitLine">—</div>
       <div class="bars" id="bars"></div>
       <table class="breakdown" id="table"></table>
+      <h2 style="margin-top:16px">Generated CLI Command</h2>
+      <div class="cmd-box">
+        <pre id="cliCmd"></pre>
+        <button id="copyBtn" type="button" onclick="copyCli()">Copy</button>
+      </div>
       <div class="note">
         Model estimate uses the dashboard formulas. OS/display is a planning reserve so the
         number matches what you actually have free under a desktop session. Live SMI remains authoritative.
@@ -386,6 +430,101 @@ function osOverheadMb() {
   const p = OS_PROFILES[profile] || OS_PROFILES.none;
   // midpoint of the typical range
   return p.base + p.spread * 0.5;
+}
+
+function updateCliCommand(key, arch) {
+  const ctx     = +$("ctx").value;
+  const layers  = arch.layers;
+  const ngl     = Math.min(+$("ngl").value, layers);
+  const batch   = +$("batch").value;
+  const ubatch  = +$("ubatch").value;
+  const ctk     = $("ctk").value;
+  const ctv     = $("ctv").value;
+  const useFa   = $("fa").checked;
+  const useOt   = $("ot").checked;
+  const useMmproj = $("mmproj").checked;
+  const useMtp  = $("mtp").checked;
+  const mtpN    = +$("mtpN").value;
+  const ngpu    = +$("ngpu").value;
+  const moeMode = $("moeOffload").value;
+  const moeCpuN = +$("moeCpuN").value;
+
+  const lines = [];
+  lines.push(`llama-server \\`);
+  lines.push(`  -m <path-to-${key}.gguf> \\`);
+  lines.push(`  -c ${ctx} \\`);
+  lines.push(`  -ngl ${ngl} \\`);
+  lines.push(`  -b ${batch} \\`);
+  lines.push(`  -ub ${ubatch} \\`);
+  lines.push(`  -ctk ${ctk} -ctv ${ctv}`);
+
+  // Optional flags
+  if (useFa) {
+    lines[lines.length - 1] += ` \\`;
+    lines.push(`  -fa`);
+  }
+  if (useMmproj) {
+    lines[lines.length - 1] += ` \\`;
+    lines.push(`  --mmproj <path-to-mmproj.gguf>`);
+  }
+  if (useMtp) {
+    lines[lines.length - 1] += ` \\`;
+    lines.push(`  --spec-draft-n-max ${mtpN}`);
+  }
+
+  // MoE expert offload
+  if (arch.moe) {
+    if (moeMode === "all") {
+      lines[lines.length - 1] += ` \\`;
+      lines.push(`  --cpu-moe`);
+    } else if (moeMode === "partial" && moeCpuN > 0) {
+      lines[lines.length - 1] += ` \\`;
+      lines.push(`  --n-cpu-moe ${moeCpuN}`);
+    }
+  }
+
+  // Helpful comments for advanced cases (not executable flags)
+  if (useOt) {
+    lines.push(`# -ot / --override-tensor active (experts or selected tensors on CPU)`);
+  }
+  if (ngpu > 1) {
+    lines.push(`# multi-GPU: add -ts 1,1 or --split-mode layer as needed`);
+  }
+
+  $("cliCmd").textContent = lines.join("\n");
+}
+
+function copyCli() {
+  const raw = $("cliCmd").textContent;
+  // Strip comment lines and collapse backslash-newlines into a single line
+  const clean = raw
+    .split("\n")
+    .filter(l => !l.trim().startsWith("#"))
+    .join(" ")
+    .replace(/ \\\s+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+
+  navigator.clipboard.writeText(clean).then(() => {
+    const btn = $("copyBtn");
+    btn.textContent = "Copied!";
+    btn.classList.add("copied");
+    setTimeout(() => {
+      btn.textContent = "Copy";
+      btn.classList.remove("copied");
+    }, 1800);
+  }).catch(() => {
+    // Fallback for older browsers / insecure context
+    const ta = document.createElement("textarea");
+    ta.value = clean;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand("copy");
+    document.body.removeChild(ta);
+    const btn = $("copyBtn");
+    btn.textContent = "Copied!";
+    setTimeout(() => { btn.textContent = "Copy"; }, 1800);
+  });
 }
 
 function estimate() {
@@ -597,6 +736,9 @@ function estimate() {
   $("ngl").max = layers;
   if (+$("ngl").value > layers) $("ngl").value = layers;
   $("nglVal").textContent = `${Math.min(+$("ngl").value, layers)}/${layers}`;
+
+  // Live CLI command
+  updateCliCommand(key, arch);
 }
 
 function bind() {
