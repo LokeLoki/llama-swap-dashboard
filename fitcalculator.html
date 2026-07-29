@@ -97,6 +97,89 @@
   .cmd-box button.copied {
     color: var(--accent);
   }
+  /* Model scan / drop zone */
+  .scan-row {
+    display: flex;
+    gap: 8px;
+    margin-bottom: 10px;
+    flex-wrap: wrap;
+  }
+  .scan-row button {
+    background: var(--input);
+    border: 1px solid var(--border);
+    color: var(--text);
+    border-radius: 6px;
+    padding: 6px 12px;
+    font-size: 0.85rem;
+    cursor: pointer;
+    transition: background 0.15s, border-color 0.15s;
+  }
+  .scan-row button:hover {
+    background: var(--border);
+    border-color: var(--accent2);
+  }
+  .scan-row button.primary {
+    background: #1f6feb22;
+    border-color: #1f6feb;
+    color: var(--accent2);
+  }
+  .drop-zone {
+    border: 1px dashed var(--border);
+    border-radius: 6px;
+    padding: 16px 14px;
+    text-align: center;
+    color: var(--muted);
+    font-size: 0.82rem;
+    margin-bottom: 10px;
+    transition: border-color 0.15s, background 0.15s;
+    cursor: pointer;
+    background: #161b2244;
+  }
+  .drop-zone:active, .drop-zone.dragover {
+    border-color: var(--accent2);
+    background: #1f6feb15;
+    color: var(--accent2);
+  }
+  .drop-zone .browse-btn {
+    display: inline-block;
+    background: var(--input);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 0.88rem;
+    color: var(--accent2);
+    margin-top: 6px;
+    pointer-events: none;
+  }
+  .model-list {
+    max-height: 160px;
+    overflow-y: auto;
+    margin-bottom: 10px;
+    font-size: 0.8rem;
+  }
+  .model-list .item {
+    display: flex;
+    justify-content: space-between;
+    gap: 8px;
+    padding: 4px 6px;
+    border-radius: 4px;
+    cursor: pointer;
+  }
+  .model-list .item:hover,
+  .model-list .item.active {
+    background: #21262d;
+  }
+  .model-list .item .name {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    color: var(--text);
+  }
+  .model-list .item .size {
+    color: var(--accent2);
+    font-variant-numeric: tabular-nums;
+    flex-shrink: 0;
+  }
 </style>
 </head>
 <body>
@@ -126,6 +209,19 @@
           <span style="color:var(--muted);font-size:0.8rem">GB</span>
         </div>
       </label>
+
+      <div class="scan-row">
+        <button type="button" id="scanFolderBtn" class="primary" style="display:none">
+          Scan models folder
+        </button>
+        <button type="button" id="clearScanBtn" style="display:none">Clear</button>
+      </div>
+      <div id="dropZone" class="drop-zone">
+        <div>Drop .gguf file(s) here</div>
+        <div class="browse-btn">Tap to browse</div>
+        <input type="file" id="ggufInput" accept=".gguf" multiple hidden>
+      </div>
+      <div id="modelList" class="model-list" style="display:none"></div>
 
       <label class="row full">
         <span>Cache K (-ctk)</span>
@@ -430,6 +526,163 @@ function osOverheadMb() {
   const p = OS_PROFILES[profile] || OS_PROFILES.none;
   // midpoint of the typical range
   return p.base + p.spread * 0.5;
+}
+
+/* ── GGUF size scanner ────────────────────────────────────── */
+let scannedModels = []; // { name, sizeGb, file }
+
+function canUseFolderPicker() {
+  return "showDirectoryPicker" in window;
+}
+
+function formatSizeGb(bytes) {
+  return (bytes / (1024 ** 3)).toFixed(2);
+}
+
+function guessArchAndQuant(filename) {
+  const lower = filename.toLowerCase().replace(/\.gguf$/, "");
+  const quantMap = [
+    [/q8_0|q8\.0/, "q8_0"],
+    [/q6_k/, "q6_k"],
+    [/q5_k_m|q5_k\.m/, "q5_k_m"],
+    [/q5_k_s|q5_0/, "q5_k_s"],
+    [/q4_k_m|q4_k\.m/, "q4_k_m"],
+    [/q4_k_s|q4_0/, "q4_k_s"],
+    [/iq4_xs/, "iq4_xs"],
+    [/iq4_xxs/, "iq4_xxs"],
+    [/q3_k/, "q3_k_m"],
+    [/q2_k/, "q2_k"],
+    [/f16|fp16/, "f16"],
+    [/bf16/, "bf16"],
+  ];
+  let quant = null;
+  for (const [re, q] of quantMap) {
+    if (re.test(lower)) { quant = q; break; }
+  }
+  // Architecture detection — longest / most specific keys first
+  const archKeys = Object.keys(ARCH).sort((a, b) => b.length - a.length);
+  let arch = null;
+  for (const k of archKeys) {
+    if (lower.includes(k.replace(/-/g, "")) || lower.includes(k)) {
+      arch = k;
+      break;
+    }
+  }
+  // Common aliases
+  if (!arch) {
+    if (/qwen3\.6.*27b|qwen3-6.*27/.test(lower)) arch = "qwen3.6-27b";
+    else if (/qwen3\.5.*27b/.test(lower)) arch = "qwen3.5-27b";
+    else if (/gemma-?4.*31b/.test(lower)) arch = "gemma4-31b";
+    else if (/gemma-?4.*26b/.test(lower)) arch = "gemma4-26b-a4b";
+    else if (/command-?r-?plus/.test(lower)) arch = "command-r-plus";
+    else if (/command-?r/.test(lower)) arch = "command-r";
+  }
+  return { arch, quant };
+}
+
+function applyModel(model) {
+  $("weightOverride").value = model.sizeGb;
+  const guess = guessArchAndQuant(model.name);
+  if (guess.arch && ARCH[guess.arch]) {
+    $("arch").value = guess.arch;
+    $("arch").dispatchEvent(new Event("input"));
+  }
+  if (guess.quant) {
+    const sel = $("weightQuant");
+    for (const opt of sel.options) {
+      if (opt.value === guess.quant) {
+        sel.value = guess.quant;
+        break;
+      }
+    }
+  }
+  estimate();
+}
+
+function renderModelList() {
+  const list = $("modelList");
+  if (!scannedModels.length) {
+    list.style.display = "none";
+    $("clearScanBtn").style.display = "none";
+    return;
+  }
+  list.style.display = "block";
+  $("clearScanBtn").style.display = "inline-block";
+  list.innerHTML = scannedModels
+    .sort((a, b) => b.sizeGb - a.sizeGb)
+    .map((m, i) => `
+      <div class="item" data-idx="${i}">
+        <span class="name" title="${m.name}">${m.name}</span>
+        <span class="size">${m.sizeGb} GB</span>
+      </div>`).join("");
+  list.querySelectorAll(".item").forEach(el => {
+    el.addEventListener("click", () => {
+      list.querySelectorAll(".item").forEach(x => x.classList.remove("active"));
+      el.classList.add("active");
+      applyModel(scannedModels[+el.dataset.idx]);
+    });
+  });
+}
+
+async function scanFolder() {
+  try {
+    const dir = await window.showDirectoryPicker();
+    scannedModels = [];
+    async function walk(handle, depth = 0) {
+      for await (const entry of handle.values()) {
+        if (entry.kind === "file" && entry.name.toLowerCase().endsWith(".gguf")) {
+          const file = await entry.getFile();
+          scannedModels.push({ name: entry.name, sizeGb: formatSizeGb(file.size), file });
+        } else if (entry.kind === "directory" && depth < 1) {
+          await walk(entry, depth + 1);
+        }
+      }
+    }
+    await walk(dir);
+    renderModelList();
+    if (scannedModels.length === 1) applyModel(scannedModels[0]);
+  } catch (err) {
+    if (err.name !== "AbortError") console.warn(err);
+  }
+}
+
+function handleFiles(fileList) {
+  const files = [...fileList].filter(f => f.name.toLowerCase().endsWith(".gguf"));
+  if (!files.length) return;
+  scannedModels = files.map(f => ({
+    name: f.name, sizeGb: formatSizeGb(f.size), file: f
+  }));
+  renderModelList();
+  if (scannedModels.length === 1) applyModel(scannedModels[0]);
+}
+
+function initScanner() {
+  const scanBtn = $("scanFolderBtn");
+  const dropZone = $("dropZone");
+  const input = $("ggufInput");
+  const clearBtn = $("clearScanBtn");
+  if (canUseFolderPicker()) {
+    scanBtn.style.display = "inline-block";
+    scanBtn.addEventListener("click", scanFolder);
+  }
+  clearBtn.addEventListener("click", () => {
+    scannedModels = [];
+    renderModelList();
+    $("weightOverride").value = "";
+    estimate();
+  });
+  dropZone.addEventListener("click", () => input.click());
+  input.addEventListener("change", () => handleFiles(input.files));
+  dropZone.addEventListener("dragover", e => {
+    e.preventDefault();
+    dropZone.classList.add("dragover");
+  });
+  dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
+  dropZone.addEventListener("drop", e => {
+    e.preventDefault();
+    dropZone.classList.remove("dragover");
+    handleFiles(e.dataTransfer.files);
+  });
 }
 
 function updateCliCommand(key, arch) {
@@ -774,6 +1027,7 @@ function bind() {
 populate();
 bind();
 estimate();
+initScanner();
 </script>
 </body>
 </html>
