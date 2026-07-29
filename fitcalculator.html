@@ -491,17 +491,17 @@ function estimate() {
   if (backend === "vulkan") {
     cudaCtx = 35 * ngpu;
     compute = (28 + ubatch * 0.45) * sizeFactor * ngpu;
-    fa = useFa ? (ctx > 32768 ? 35 : ctx > 8192 ? 18 : 8) * sizeFactor * ngpu : 0;
+    fa = useFa ? 0 : (ctx > 32768 ? 35 : ctx > 8192 ? 18 : 8) * sizeFactor * ngpu;
     sync = ngpu > 1 ? 18 * sizeFactor * ngpu : 0;
   } else if (backend === "rocm") {
     cudaCtx = 90 * ngpu;
     compute = (50 + ubatch * 0.70) * sizeFactor * ngpu;
-    fa = useFa ? (ctx > 16384 ? 55 : 22) * sizeFactor * ngpu : 0;
+    fa = useFa ? 0 : (ctx > 16384 ? 55 : 22) * sizeFactor * ngpu;
     sync = ngpu > 1 ? 30 * sizeFactor * ngpu : 0;
   } else {
     cudaCtx = 220 * ngpu;
     compute = (65 + ubatch * 0.80) * sizeFactor * ngpu;
-    if (useFa) {
+    if (!useFa) {
       if (ctx > 8192) {
         const ctxFactor = Math.min(1.8, Math.max(0.35, ctx / 130000));
         fa = 130 * ctxFactor * sizeFactor * ngpu;
