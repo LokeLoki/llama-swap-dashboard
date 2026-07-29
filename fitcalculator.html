@@ -530,6 +530,7 @@ function osOverheadMb() {
 
 /* ── GGUF size scanner ────────────────────────────────────── */
 let scannedModels = []; // { name, sizeGb, file }
+let activeModelFileName = null;
 
 function canUseFolderPicker() {
   return "showDirectoryPicker" in window;
@@ -581,6 +582,7 @@ function guessArchAndQuant(filename) {
 }
 
 function applyModel(model) {
+  activeModelFileName = model.name;
   $("weightOverride").value = model.sizeGb;
   const guess = guessArchAndQuant(model.name);
   if (guess.arch && ARCH[guess.arch]) {
@@ -667,6 +669,7 @@ function initScanner() {
   }
   clearBtn.addEventListener("click", () => {
     scannedModels = [];
+    activeModelFileName = null;
     renderModelList();
     $("weightOverride").value = "";
     estimate();
@@ -705,7 +708,10 @@ function updateCliCommand(key, arch) {
   // Build flag array (no trailing backslashes — handled at render time)
   const flags = [];
   flags.push(`llama-server`);
-  flags.push(`-m <path-to-${key}.gguf`);
+  const modelPath = activeModelFileName
+    ? activeModelFileName
+    : `<path-to-${key}.gguf>`;
+  flags.push(`-m ${modelPath}`);
   flags.push(`-c ${ctx}`);
   // Skip -ngl when full offload (llama-server default = all layers on GPU)
   if (ngl < layers) flags.push(`-ngl ${ngl}`);
