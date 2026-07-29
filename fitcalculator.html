@@ -223,7 +223,7 @@ const ARCH = {
   "qwen3.5-122b-a10b":{ layers:64, kv:8, dim:256, kind:"hybrid", eff:16, moe:true, w:{q4_k_m:65000,q5_k_m:78000,q6_k:92000,q8_0:120000,iq4_xs:58000,f16:230000} },
   "qwen3.5-397b-a17b":{ layers:72, kv:8, dim:256, kind:"hybrid", eff:18, moe:true, w:{q4_k_m:180000,q5_k_m:220000,q6_k:260000,q8_0:340000,iq4_xs:160000,f16:700000} },
   "ornith":           { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
-  "bonsai":           { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, w:{q4_k_m:9000,q5_k_m:11000,q6_k:13000,q8_0:16000,iq4_xs:8000,f16:30000} },
+  "bonsai":           { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, w:{q1_0:3994,q2_0:7200,q4_k_m:9000,f16:54000} },
 
   // Qwen 3 dense / MoE
   "qwen3-32b":        { layers:64, kv:8, dim:128, kind:"dense", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
@@ -301,7 +301,7 @@ const CACHE_BYTES = {
   q3_k_m:0.375, q2_k:0.25
 };
 const CACHE_OPTS = Object.keys(CACHE_BYTES);
-const WEIGHT_OPTS = ["iq4_xs","q4_k_m","q5_k_m","q6_k","q8_0","f16"];
+const WEIGHT_OPTS = ["q1_0","q2_0","iq4_xs","q4_k_m","q5_k_m","q6_k","q8_0","f16"];
 
 const OS_PROFILES = {
   none:        { base:0,   spread:0 },
