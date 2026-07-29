@@ -448,12 +448,15 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
             compute_per_gpu += 20.0 * size_factor  # materialization overhead
         compute_buffer_total = compute_per_gpu * num_active_gpus
 
-        if ctx_size > 32768:
-            flash_attn_mb = 35.0 * size_factor * num_active_gpus
-        elif ctx_size > 8192:
-            flash_attn_mb = 18.0 * size_factor * num_active_gpus
+        if not flash_attn_enabled:
+            if ctx_size > 32768:
+                flash_attn_mb = 35.0 * size_factor * num_active_gpus
+            elif ctx_size > 8192:
+                flash_attn_mb = 18.0 * size_factor * num_active_gpus
+            else:
+                flash_attn_mb = 8.0 * size_factor * num_active_gpus
         else:
-            flash_attn_mb = 8.0 * size_factor * num_active_gpus
+            flash_attn_mb = 0.0
 
         if num_active_gpus > 1:
             # Cross-vendor pays a bit more for interop / staging
@@ -485,10 +488,13 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
             compute_per_gpu += 30.0 * size_factor  # materialization overhead
         compute_buffer_total = compute_per_gpu * num_active_gpus
 
-        if ctx_size > 16384:
-            fa = 55.0 * size_factor * num_active_gpus
+        if not flash_attn_enabled:
+            if ctx_size > 16384:
+                fa = 55.0 * size_factor * num_active_gpus
+            else:
+                fa = 22.0 * size_factor * num_active_gpus
         else:
-            fa = 22.0 * size_factor * num_active_gpus
+            fa = 0.0
 
         sync = (30.0 * size_factor * num_active_gpus) if num_active_gpus > 1 else 0.0
 
@@ -515,11 +521,14 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
         compute_per_gpu += 40.0 * size_factor  # materialization overhead
     compute_buffer_total = compute_per_gpu * num_active_gpus
 
-    if ctx_size > 8192:
-        ctx_factor = min(1.8, max(0.35, ctx_size / 130000.0))
-        flash_attn_mb = 130.0 * ctx_factor * size_factor * num_active_gpus
+    if not flash_attn_enabled:
+        if ctx_size > 8192:
+            ctx_factor = min(1.8, max(0.35, ctx_size / 130000.0))
+            flash_attn_mb = 130.0 * ctx_factor * size_factor * num_active_gpus
+        else:
+            flash_attn_mb = 40.0 * size_factor * num_active_gpus
     else:
-        flash_attn_mb = 40.0 * size_factor * num_active_gpus
+        flash_attn_mb = 0.0
 
     if num_active_gpus > 1:
         tensor_sync_mb = 40.0 * size_factor * num_active_gpus
