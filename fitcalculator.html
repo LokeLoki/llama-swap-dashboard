@@ -449,49 +449,44 @@ function updateCliCommand(key, arch) {
   const moeMode = $("moeOffload").value;
   const moeCpuN = +$("moeCpuN").value;
 
-  const lines = [];
-  lines.push(`llama-server \\`);
-  lines.push(`  -m <path-to-${key}.gguf> \\`);
-  lines.push(`  -c ${ctx} \\`);
-  lines.push(`  -ngl ${ngl} \\`);
-  lines.push(`  -b ${batch} \\`);
-  lines.push(`  -ub ${ubatch} \\`);
-  lines.push(`  -ctk ${ctk} -ctv ${ctv}`);
+  // Build flag array (no trailing backslashes — handled at render time)
+  const flags = [];
+  flags.push(`llama-server`);
+  flags.push(`-m <path-to-${key}.gguf`);
+  flags.push(`-c ${ctx}`);
+  // Skip -ngl when full offload (llama-server default = all layers on GPU)
+  if (ngl < layers) flags.push(`-ngl ${ngl}`);
+  flags.push(`-b ${batch}`);
+  flags.push(`-ub ${ubatch}`);
+  flags.push(`-ctk ${ctk}`);
+  flags.push(`-ctv ${ctv}`);
 
   // Optional flags
-  if (useFa) {
-    lines[lines.length - 1] += ` \\`;
-    lines.push(`  -fa`);
-  }
-  if (useMmproj) {
-    lines[lines.length - 1] += ` \\`;
-    lines.push(`  --mmproj <path-to-mmproj.gguf>`);
-  }
+  if (useFa) flags.push(`-fa`);
+  if (useOt) flags.push(`-ot`);
+  if (useMmproj) flags.push(`--mmproj <path-to-mmproj.gguf>`);
   if (useMtp) {
-    lines[lines.length - 1] += ` \\`;
-    lines.push(`  --spec-draft-n-max ${mtpN}`);
+    flags.push(`--spec-type draft-mtp`);
+    flags.push(`--spec-draft-n-max ${mtpN}`);
   }
 
   // MoE expert offload
   if (arch.moe) {
-    if (moeMode === "all") {
-      lines[lines.length - 1] += ` \\`;
-      lines.push(`  --cpu-moe`);
-    } else if (moeMode === "partial" && moeCpuN > 0) {
-      lines[lines.length - 1] += ` \\`;
-      lines.push(`  --n-cpu-moe ${moeCpuN}`);
-    }
+    if (moeMode === "all") flags.push(`--cpu-moe`);
+    else if (moeMode === "partial" && moeCpuN > 0) flags.push(`--n-cpu-moe ${moeCpuN}`);
   }
 
-  // Helpful comments for advanced cases (not executable flags)
-  if (useOt) {
-    lines.push(`# -ot / --override-tensor active (experts or selected tensors on CPU)`);
-  }
-  if (ngpu > 1) {
-    lines.push(`# multi-GPU: add -ts 1,1 or --split-mode layer as needed`);
-  }
+  // Render as wrapped multiline
+  const cmd = flags.join(" \\");
+  $("cliCmd").textContent = cmd + "\n";
 
-  $("cliCmd").textContent = lines.join("\n");
+  // Contextual comments (not in the copyable command)
+  const comments = [];
+  if (useOt) comments.push(`# -ot: large tensors stay on CPU (experts, lm_head)`);
+  if (ngpu > 1) comments.push(`# multi-GPU: add -ts 1,1 or --split-mode layer as needed`);
+  if (comments.length) {
+    $("cliCmd").textContent += "\n" + comments.join("\n");
+  }
 }
 
 function copyCli() {
