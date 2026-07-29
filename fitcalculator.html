@@ -436,9 +436,10 @@ function estimate() {
 
   // offload
   let offloadRatio = Math.max(0, Math.min(ngl, layers)) / layers;
-  if (useOt && offloadRatio > 0 && offloadRatio < 1) offloadRatio = Math.min(offloadRatio, 0.6);
+  if (useOt && offloadRatio > 0 && offloadRatio < 1) offloadRatio = Math.max(offloadRatio, 0.9);
 
   const isHybrid = arch.kind === "hybrid";
+  const isMoe = arch.moe || false;
   const residualLayers = isHybrid ? 1.6 : 2.1;
   const perLayer = weightMb / layers;
   const residualMb = Math.max(400, Math.min(4500, perLayer * residualLayers));
@@ -473,7 +474,6 @@ function estimate() {
   const hybridDiscount = isHybrid ? 0.75 : 1.0;
   let sizeFactor = Math.max(0.25, Math.min(3.5, (weightMb / 16500) * hybridDiscount));
   // MoE active-weight correction
-  const isMoe = arch.moe || false;
   if (isMoe) {
     if (key.includes("a")) {
       const totalMatch = key.match(/(\d+)b-a(\d+)b/);
