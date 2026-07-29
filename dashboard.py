@@ -2232,8 +2232,10 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         else:
             # Bundled MTP (--spec-type draft-mtp): MTP heads are single-layer transformers.
             # Qwen3.6 has 3 MTP layers baked into the GGUF; each head maintains its own KV state.
+            # For Gemma 4, bypass dual-geometry so we use the correct mtp_layers count
+            # instead of the full model's sliding+global layer counts.
             mtp_layers = min(spec_draft_n, 3)
-            draft_cache_mb = calc_kv_cache_mb(mtp_layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, mtp_layers, gemma4_kv, gemma4_geometry)
+            draft_cache_mb = calc_kv_cache_mb(mtp_layers, kv_heads, head_dim, cache_bytes, ctx_size, iswa_window, mtp_layers, gemma4_kv, None)
     # Build cache type string for display
     ct_display = active["cache_type"] or "f16"
     # --- Partial offload correction (-ngl) ---
