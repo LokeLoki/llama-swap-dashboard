@@ -150,6 +150,20 @@
         </select>
       </label>
 
+      <label class="row full" id="moeOffloadRow" style="display:none">
+        <span>MoE expert offload</span>
+        <select id="moeOffload">
+          <option value="none">None (all experts on GPU)</option>
+          <option value="all">--cpu-moe (all experts on CPU)</option>
+          <option value="partial">--n-cpu-moe N (partial)</option>
+        </select>
+      </label>
+      <label class="row" id="moeCpuNRow" style="display:none">
+        <span>Experts on CPU</span>
+        <input type="range" id="moeCpuN" min="0" max="64" step="1" value="20">
+        <span class="val" id="moeCpuNVal">20</span>
+      </label>
+
       <h2 style="margin-top:14px">OS / display overhead</h2>
       <label class="row full">
         <span>OS profile</span>
@@ -430,6 +444,15 @@ function estimate() {
   const residualMb = Math.max(400, Math.min(4500, perLayer * residualLayers));
 
   let weightOnGpu;
+  // MoE expert offload weight reduction
+  let expertOffloadRatio = 0;
+  const moeOffloadMode = $("moeOffload").value;
+  if (isMoe) {
+    if (moeOffloadMode === "all") expertOffloadRatio = 1.0;
+    else if (moeOffloadMode === "partial") expertOffloadRatio = +$("moeCpuN").value / layers;
+    weightMb *= (1.0 - 0.75 * expertOffloadRatio);
+  }
+
   if (offloadRatio > 0 && offloadRatio < 1) {
     const scalable = Math.max(0, weightMb - residualMb);
     weightOnGpu = residualMb + scalable * offloadRatio;
@@ -566,7 +589,8 @@ function estimate() {
     ["Extra reserve", (reserveMb/1024).toFixed(2) + " GB"],
     ["Planning total", (planningTotal/1024).toFixed(2) + " GB"],
     ["Offload", `${(offloadRatio*100).toFixed(0)}%  (ngl ${Math.round(offloadRatio*layers)}/${layers})`],
-  ];
+    isMoe ? ["Expert offload", expertOffloadRatio > 0 ? `${(expertOffloadRatio*100).toFixed(0)}% (${expertOffloadRatio>=1?"all":Math.round(expertOffloadRatio*layers)} on CPU)` : "none"] : null,
+  ].filter(r => r);
   $("table").innerHTML = rows.map(([a,b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join("");
 
   // ngl max label
@@ -577,7 +601,7 @@ function estimate() {
 
 function bind() {
   const ids = ["arch","weightQuant","weightOverride","ctk","ctv","ctx","ngl","batch","ubatch",
-    "mmproj","mtp","ot","fa","mmprojMb","mtpN","ngpu","backend","osProfile","osCustom","reserve","target"];
+    "mmproj","mtp","ot","fa","mmprojMb","mtpN","ngpu","backend","moeOffload","moeCpuN","osProfile","osCustom","reserve","target"];
   ids.forEach(id => {
     $(id).addEventListener("input", () => {
       if (id === "ctx") $("ctxVal").textContent = fmtCtx(+$("ctx").value);
@@ -597,7 +621,14 @@ function bind() {
         // reset ngl to full when switching models
         const layers = ARCH[$("arch").value].layers;
         $("ngl").max = layers; $("ngl").value = layers;
+        $("moeOffloadRow").style.display = ARCH[$("arch").value].moe ? "grid" : "none";
+        $("moeCpuNRow").style.display = ARCH[$("arch").value].moe && $("moeOffload").value === "partial" ? "grid" : "none";
       }
+      // Toggle partial row when moeOffload select changes
+      if (id === "moeOffload") {
+        $("moeCpuNRow").style.display = $("moeOffload").value === "partial" ? "grid" : "none";
+      }
+      if (id === "moeCpuN") $("moeCpuNVal").textContent = $("moeCpuN").value;
       estimate();
     });
   });
