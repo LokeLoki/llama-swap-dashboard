@@ -271,6 +271,12 @@
         </select>
       </label>
 
+      <label class="row">
+        <span>Port</span>
+        <input type="number" id="port" min="1" max="65535" step="1" value="8080">
+        <span class="val" id="portVal">8080</span>
+      </label>
+
       <label class="row full" id="moeOffloadRow" style="display:none">
         <span>MoE expert offload</span>
         <select id="moeOffload">
@@ -732,6 +738,8 @@ function updateCliCommand(key, arch) {
   flags.push(`-ub ${ubatch}`);
   flags.push(`-ctk ${ctk}`);
   flags.push(`-ctv ${ctv}`);
+  const port = +$("port").value || 8080;
+  flags.push(`--port ${port}`);
 
   // Optional flags
   if (useFa) flags.push(`-fa`);
@@ -1010,7 +1018,7 @@ function estimate() {
 
 function bind() {
   const ids = ["arch","weightQuant","weightOverride","ctk","ctv","ctx","ngl","batch","ubatch",
-    "mmproj","mtp","ot","fa","mmprojMb","mtpN","ngpu","backend","moeOffload","moeCpuN","osProfile","osCustom","reserve","target"];
+  "mmproj","mtp","ot","fa","mmprojMb","mtpN","ngpu","backend","port","moeOffload","moeCpuN","osProfile","osCustom","reserve","target"];
   ids.forEach(id => {
     $(id).addEventListener("input", () => {
       if (id === "ctx") $("ctxVal").textContent = fmtCtx(+$("ctx").value);
@@ -1019,6 +1027,7 @@ function bind() {
       if (id === "ubatch") $("ubatchVal").textContent = $("ubatch").value;
       if (id === "mtpN") $("mtpNVal").textContent = $("mtpN").value;
       if (id === "ngpu") $("ngpuVal").textContent = $("ngpu").value;
+      if (id === "port") $("portVal").textContent = $("port").value;
       if (id === "mmprojMb") $("mmprojVal").textContent = (+$("mmprojMb").value/1024).toFixed(2)+" GB";
       if (id === "osCustom") $("osCustomVal").textContent = (+$("osCustom").value/1024).toFixed(2)+" GB";
       if (id === "reserve") $("reserveVal").textContent = (+$("reserve").value/1024).toFixed(2)+" GB";
