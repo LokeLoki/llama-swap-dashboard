@@ -2263,7 +2263,7 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     # -ot / --override-tensor: large tensors (experts, lm_head) stay on CPU.
     # This REDUCES GPU VRAM vs naive partial offload.
     if has_override_tensor and 0.0 < offload_ratio < 1.0:
-        offload_ratio = min(offload_ratio, 0.6)
+        offload_ratio = min(offload_ratio, 0.85)
 
     if 0.0 < offload_ratio < 1.0:
         scalable = max(0.0, weight_mb - EMBEDDING_FIXED_MB)

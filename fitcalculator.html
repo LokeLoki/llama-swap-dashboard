@@ -436,7 +436,7 @@ function estimate() {
 
   // offload
   let offloadRatio = Math.max(0, Math.min(ngl, layers)) / layers;
-  if (useOt && offloadRatio > 0 && offloadRatio < 1) offloadRatio = Math.max(offloadRatio, 0.9);
+  if (useOt && offloadRatio > 0 && offloadRatio < 1) offloadRatio = Math.min(offloadRatio, 0.85);
 
   const isHybrid = arch.kind === "hybrid";
   const isMoe = arch.moe || false;
