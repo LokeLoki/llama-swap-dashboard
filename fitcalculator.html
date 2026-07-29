@@ -218,10 +218,10 @@ const ARCH = {
   "qwen3.5-27b":      { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, w:{q4_k_m:16500,q5_k_m:19200,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
   "qwen3.5-9b":       { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
   "qwen3.5-8b":       { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,iq4_xs:4200,f16:16000} },
-  "qwen3.6-35b-a3b":  { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
-  "qwen3.5-35b-a3b":  { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
-  "qwen3.5-122b-a10b":{ layers:64, kv:8, dim:256, kind:"hybrid", eff:16, w:{q4_k_m:65000,q5_k_m:78000,q6_k:92000,q8_0:120000,iq4_xs:58000,f16:230000} },
-  "qwen3.5-397b-a17b":{ layers:72, kv:8, dim:256, kind:"hybrid", eff:18, w:{q4_k_m:180000,q5_k_m:220000,q6_k:260000,q8_0:340000,iq4_xs:160000,f16:700000} },
+  "qwen3.6-35b-a3b":  { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
+  "qwen3.5-35b-a3b":  { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
+  "qwen3.5-122b-a10b":{ layers:64, kv:8, dim:256, kind:"hybrid", eff:16, moe:true, w:{q4_k_m:65000,q5_k_m:78000,q6_k:92000,q8_0:120000,iq4_xs:58000,f16:230000} },
+  "qwen3.5-397b-a17b":{ layers:72, kv:8, dim:256, kind:"hybrid", eff:18, moe:true, w:{q4_k_m:180000,q5_k_m:220000,q6_k:260000,q8_0:340000,iq4_xs:160000,f16:700000} },
   "ornith":           { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
   "bonsai":           { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, w:{q4_k_m:9000,q5_k_m:11000,q6_k:13000,q8_0:16000,iq4_xs:8000,f16:30000} },
 
@@ -230,8 +230,8 @@ const ARCH = {
   "qwen3-14b":        { layers:40, kv:8, dim:128, kind:"dense", w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,iq4_xs:7500,f16:28000} },
   "qwen3-8b":         { layers:36, kv:8, dim:128, kind:"dense", w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,iq4_xs:4200,f16:16000} },
   "qwen3-4b":         { layers:36, kv:8, dim:128, kind:"dense", w:{q4_k_m:2500,q5_k_m:3000,q6_k:3500,q8_0:4500,iq4_xs:2200,f16:8000} },
-  "qwen3-30b-a3b":    { layers:48, kv:4, dim:128, kind:"dense", w:{q4_k_m:17000,q5_k_m:20000,q6_k:24000,q8_0:31000,iq4_xs:15000,f16:60000} },
-  "qwen3-235b-a22b":  { layers:94, kv:4, dim:128, kind:"dense", w:{q4_k_m:120000,q5_k_m:145000,q6_k:170000,q8_0:220000,iq4_xs:110000,f16:440000} },
+  "qwen3-30b-a3b":    { layers:48, kv:4, dim:128, kind:"dense", moe:true, w:{q4_k_m:17000,q5_k_m:20000,q6_k:24000,q8_0:31000,iq4_xs:15000,f16:60000} },
+  "qwen3-235b-a22b":  { layers:94, kv:4, dim:128, kind:"dense", moe:true, w:{q4_k_m:120000,q5_k_m:145000,q6_k:170000,q8_0:220000,iq4_xs:110000,f16:440000} },
 
   // Qwen 2.5
   "qwen2.5-72b":      { layers:80, kv:8, dim:128, kind:"dense", w:{q4_k_m:40000,q5_k_m:48000,q6_k:56000,q8_0:72000,iq4_xs:36000,f16:144000} },
