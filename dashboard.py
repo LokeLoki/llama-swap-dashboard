@@ -439,9 +439,13 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
     # ──────────────────────────────────────────────────────────────
     # 1. Backend-specific base values
     # ──────────────────────────────────────────────────────────────
+    # Saturating ubatch contribution (realistic up to 8k)
+    def _ubatch_factor(ub):
+        return 65.0 + 0.55 * min(ub, 2048) + 0.18 * max(0.0, ub - 2048)
+
     if backend in ("vulkan", "mixed"):
         cuda_context_total = 35.0 * num_active_gpus
-        compute_per_gpu = (28.0 + ubatch_size * 0.45) * size_factor
+        compute_per_gpu = (28.0 + ubatch_size * 0.35) * size_factor
         if not flash_attn_enabled:
             compute_per_gpu += 20.0 * size_factor
         flash_attn_mb = 0.0
@@ -456,7 +460,7 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
         ceiling = 0.12 * (model_weight_mb or 16000.0) + 220.0
     elif backend in ("rocm", "amd"):
         cuda_context_total = 90.0 * num_active_gpus
-        compute_per_gpu = (50.0 + ubatch_size * 0.70) * size_factor
+        compute_per_gpu = (50.0 + ubatch_size * 0.55) * size_factor
         if not flash_attn_enabled:
             compute_per_gpu += 30.0 * size_factor
         flash_attn_mb = 0.0
@@ -470,7 +474,7 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
     else:
         # CUDA
         cuda_context_total = 333.0 * num_active_gpus
-        compute_per_gpu = (65.0 + ubatch_size * 0.80) * size_factor
+        compute_per_gpu = _ubatch_factor(ubatch_size) * size_factor
         if not flash_attn_enabled:
             compute_per_gpu += 40.0 * size_factor
         flash_attn_mb = 0.0
@@ -485,11 +489,9 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
 
     compute_buffer_total = compute_per_gpu * num_active_gpus
 
-    # Long-context compute scaling (previous fix)
+    # Long-context compute scaling (previous battle-test fix)
     ctx_scale = 1.0 + max(0.0, (ctx_size - 65536) / 180000.0) * 1.65
     compute_buffer_total *= ctx_scale
-    if ubatch_size >= 1024:
-        compute_buffer_total += (ubatch_size - 512) * 0.35 * size_factor * num_active_gpus
 
     # ── Multi-GPU overhaul ──────────────────────────────────────────────
     # Captures staging / activation traffic / partial buffer replication
