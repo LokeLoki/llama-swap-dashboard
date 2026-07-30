@@ -728,7 +728,7 @@ function estimate() {
       expertOffloadRatio = n / totalLayers;          // --n-cpu-moe = layers, not individual experts
     }
     // ~83% of MoE weight mass is offloadable experts (calibrated)
-    weightMb *= (1.0 - 0.83 * expertOffloadRatio);
+    weightMb *= (1.0 - 0.855 * expertOffloadRatio);
   }
 
   let weightOnGpu;
