@@ -720,15 +720,15 @@ function estimate() {
   let expertOffloadRatio = 0;
   if (isMoe) {
     const mode = $("moeOffload").value;
-    const totalExperts = arch.experts || 64;          // safe fallback
+    const totalLayers = arch.layers;
     if (mode === "all") {
       expertOffloadRatio = 1.0;
     } else if (mode === "partial") {
-      const n = Math.min(+$("moeCpuN").value, totalExperts);
-      expertOffloadRatio = n / totalExperts;
+      const n = Math.min(+$("moeCpuN").value, totalLayers);
+      expertOffloadRatio = n / totalLayers;          // --n-cpu-moe = layers, not individual experts
     }
-    // ~72 % of MoE weight mass lives in the experts (tuned)
-    weightMb *= (1.0 - 0.72 * expertOffloadRatio);
+    // Calibrated against real measured sweeps
+    weightMb *= (1.0 - 0.78 * expertOffloadRatio);
   }
 
   let weightOnGpu;
@@ -920,10 +920,10 @@ function bind() {
         $("ngl").max = layers; $("ngl").value = layers;
         $("moeOffloadRow").style.display = a.moe ? "grid" : "none";
         $("moeCpuNRow").style.display = a.moe && $("moeOffload").value === "partial" ? "grid" : "none";
-        // Cap expert slider to real expert count
-        if (a.moe && a.experts) {
-          $("moeCpuN").max = a.experts;
-          if (+$("moeCpuN").value > a.experts) $("moeCpuN").value = a.experts;
+        // Cap expert slider to real layer count (--n-cpu-moe = layers)
+        if (a.moe) {
+          $("moeCpuN").max = a.layers;
+          if (+$("moeCpuN").value > a.layers) $("moeCpuN").value = a.layers;
           $("moeCpuNVal").textContent = $("moeCpuN").value;
         }
       }
