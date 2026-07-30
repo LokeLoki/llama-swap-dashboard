@@ -273,10 +273,10 @@ const ARCH = {
   "qwen3.5-27b":     { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, label:"Qwen3.5 27B", w:{q4_k_m:16500,q5_k_s:19300,q5_k_m:19800,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
   "qwen3.5-9b":      { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, label:"Qwen3.5 9B",  w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
   "qwen3.5-8b":      { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, label:"Qwen3.5 8B",  w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,iq4_xs:4200,f16:16000} },
-  "qwen3.6-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, label:"Qwen3.6 35B-A3B", w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
-  "qwen3.5-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, label:"Qwen3.5 35B-A3B", w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
-  "qwen3.5-122b-a10b":{layers:64, kv:8, dim:256, kind:"hybrid", eff:16, moe:true, label:"Qwen3.5 122B-A10B", w:{q4_k_m:65000,q5_k_m:78000,q6_k:92000,q8_0:120000,f16:230000} },
-  "qwen3.5-397b-a17b":{layers:72, kv:8, dim:256, kind:"hybrid", eff:18, moe:true, label:"Qwen3.5 397B-A17B", w:{q4_k_m:180000,q5_k_m:220000,q6_k:260000,q8_0:340000,f16:700000} },
+  "qwen3.6-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, experts:128, label:"Qwen3.6 35B-A3B", w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
+  "qwen3.5-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, experts:128, label:"Qwen3.5 35B-A3B", w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
+  "qwen3.5-122b-a10b":{layers:64, kv:8, dim:256, kind:"hybrid", eff:16, moe:true, experts:128, label:"Qwen3.5 122B-A10B", w:{q4_k_m:65000,q5_k_m:78000,q6_k:92000,q8_0:120000,f16:230000} },
+  "qwen3.5-397b-a17b":{layers:72, kv:8, dim:256, kind:"hybrid", eff:18, moe:true, experts:256, label:"Qwen3.5 397B-A17B", w:{q4_k_m:180000,q5_k_m:220000,q6_k:260000,q8_0:340000,f16:700000} },
   "bonsai":          { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, label:"Bonsai 27B (1-bit Qwen3.6)", w:{q1_0:3994,tq1_0:3994,q2_0:7200,tq2_0:7200,q4_k_m:9000,f16:54000} },
   "qwen3-32b": { layers:64, kv:8, dim:128, kind:"dense", label:"Qwen3 32B", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
   "qwen3-14b": { layers:40, kv:8, dim:128, kind:"dense", label:"Qwen3 14B", w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,f16:28000} },
@@ -720,9 +720,15 @@ function estimate() {
   let expertOffloadRatio = 0;
   if (isMoe) {
     const mode = $("moeOffload").value;
-    if (mode === "all") expertOffloadRatio = 1.0;
-    else if (mode === "partial") expertOffloadRatio = +$("moeCpuN").value / layers;
-    weightMb *= (1.0 - 0.75 * expertOffloadRatio);
+    const totalExperts = arch.experts || 64;          // safe fallback
+    if (mode === "all") {
+      expertOffloadRatio = 1.0;
+    } else if (mode === "partial") {
+      const n = Math.min(+$("moeCpuN").value, totalExperts);
+      expertOffloadRatio = n / totalExperts;
+    }
+    // ~82 % of MoE weight mass lives in the experts (tuned)
+    weightMb *= (1.0 - 0.82 * expertOffloadRatio);
   }
 
   let weightOnGpu;
@@ -875,7 +881,7 @@ function estimate() {
     ["Planning total", (planningTotal/1024).toFixed(2) + " GB"],
     ["Offload", `${(offloadRatio*100).toFixed(0)}% (ngl ${Math.round(offloadRatio*layers)}/${layers})`],
     isMoe ? ["Expert offload", expertOffloadRatio > 0
-      ? `${(expertOffloadRatio*100).toFixed(0)}% (${expertOffloadRatio>=1?"all":Math.round(expertOffloadRatio*layers)} on CPU)`
+      ? `${(expertOffloadRatio*100).toFixed(0)}% (${expertOffloadRatio>=1?"all":Math.round(expertOffloadRatio*(arch.experts||64))} experts on CPU)`
       : "none"] : null,
   ].filter(Boolean);
 
@@ -909,10 +915,17 @@ function bind() {
       $("mtpRow").style.display = $("mtp").checked ? "grid" : "none";
       $("osCustomRow").style.display = $("osProfile").value === "custom" ? "grid" : "none";
       if (id === "arch") {
-        const layers = ARCH[$("arch").value].layers;
+        const a = ARCH[$("arch").value];
+        const layers = a.layers;
         $("ngl").max = layers; $("ngl").value = layers;
-        $("moeOffloadRow").style.display = ARCH[$("arch").value].moe ? "grid" : "none";
-        $("moeCpuNRow").style.display = ARCH[$("arch").value].moe && $("moeOffload").value === "partial" ? "grid" : "none";
+        $("moeOffloadRow").style.display = a.moe ? "grid" : "none";
+        $("moeCpuNRow").style.display = a.moe && $("moeOffload").value === "partial" ? "grid" : "none";
+        // Cap expert slider to real expert count
+        if (a.moe && a.experts) {
+          $("moeCpuN").max = a.experts;
+          if (+$("moeCpuN").value > a.experts) $("moeCpuN").value = a.experts;
+          $("moeCpuNVal").textContent = $("moeCpuN").value;
+        }
       }
       if (id === "moeOffload") {
         $("moeCpuNRow").style.display = $("moeOffload").value === "partial" ? "grid" : "none";

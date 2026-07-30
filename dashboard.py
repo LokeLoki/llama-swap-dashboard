@@ -2229,8 +2229,8 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
 
     # MoE expert offload: --cpu-moe or --n-cpu-moe N
     if is_moe and expert_offload_ratio > 0.0:
-        # Experts are ~75% of total file size; offloaded experts leave GPU VRAM
-        expert_frac = 0.75
+        # Experts are ~82% of total file mass; offloaded experts leave GPU VRAM
+        expert_frac = 0.82
         weight_mb = weight_mb * (1.0 - expert_frac * expert_offload_ratio)
 
     per_layer_mb = (weight_mb / layers) if layers and layers > 0 else 0
