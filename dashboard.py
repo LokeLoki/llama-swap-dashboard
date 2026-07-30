@@ -521,6 +521,12 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
         compute_per_gpu += 40.0 * size_factor  # materialization overhead
     compute_buffer_total = compute_per_gpu * num_active_gpus
 
+    # Long-context compute scaling
+    ctx_scale = 1.0 + max(0.0, (ctx_size - 65536) / 180000.0) * 1.65
+    compute_buffer_total *= ctx_scale
+    if ubatch_size >= 1024:
+        compute_buffer_total += (ubatch_size - 512) * 0.35 * size_factor * num_active_gpus
+
     if not flash_attn_enabled:
         if ctx_size > 8192:
             ctx_factor = min(1.8, max(0.35, ctx_size / 130000.0))
