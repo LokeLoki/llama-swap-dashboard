@@ -443,6 +443,17 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
     def _ubatch_factor(ub):
         return 65.0 + 0.55 * min(ub, 2048) + 0.18 * max(0.0, ub - 2048)
 
+    # Universal multi-GPU compute scale — safe for all backends.
+    # Diminishing returns per GPU (safe up to 8). Single-GPU returns 1.0.
+    def _multi_gpu_compute_scale(n):
+        if n <= 1: return 1.0
+        extra = (0.35 * min(n - 1, 1) +          # 2nd
+                 0.18 * max(0, min(n - 2, 1)) +   # 3rd
+                 0.10 * max(0, min(n - 3, 1)) +   # 4th
+                 0.06 * max(0, min(n - 4, 2)) +   # 5-6
+                 0.04 * max(0, n - 6))             # 7-8
+        return 1.0 + extra
+
     if backend in ("vulkan", "mixed"):
         cuda_context_total = 35.0 * num_active_gpus
         compute_per_gpu = (28.0 + ubatch_size * 0.35) * size_factor
@@ -458,7 +469,7 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
                 flash_attn_mb = 8.0 * size_factor * num_active_gpus
         sync = (45.0 if backend == "mixed" else 18.0) * size_factor * num_active_gpus if num_active_gpus > 1 else 0.0
         ceiling = 0.12 * (model_weight_mb or 16000.0) + 220.0
-        compute_buffer_total = compute_per_gpu * num_active_gpus
+        compute_buffer_total = compute_per_gpu * _multi_gpu_compute_scale(num_active_gpus)
     elif backend in ("rocm", "amd"):
         cuda_context_total = 90.0 * num_active_gpus
         compute_per_gpu = (50.0 + ubatch_size * 0.55) * size_factor
@@ -472,23 +483,12 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
                 flash_attn_mb = 22.0 * size_factor * num_active_gpus
         sync = 30.0 * size_factor * num_active_gpus if num_active_gpus > 1 else 0.0
         ceiling = 0.18 * (model_weight_mb or 16000.0) + 320.0
-        compute_buffer_total = compute_per_gpu * num_active_gpus
+        compute_buffer_total = compute_per_gpu * _multi_gpu_compute_scale(num_active_gpus)
     else:
         # CUDA
         # ── Multi-GPU aware (audited July 2026) ──────────────────────────────
         # Primary GPU pays the main context cost; secondary GPUs pay lighter auxiliary cost.
         cuda_context_total = 220.0 + 90.0 * (num_active_gpus - 1)
-
-        # Base compute stays single-GPU sized.
-        # Extra multi-GPU cost uses diminishing returns (safe up to 8 GPUs).
-        def _multi_gpu_compute_scale(n):
-            if n <= 1: return 1.0
-            extra = (0.35 * min(n - 1, 1) +          # 2nd
-                     0.18 * max(0, min(n - 2, 1)) +   # 3rd
-                     0.10 * max(0, min(n - 3, 1)) +   # 4th
-                     0.06 * max(0, min(n - 4, 2)) +   # 5-6
-                     0.04 * max(0, n - 6))             # 7-8
-            return 1.0 + extra
 
         compute_base = _ubatch_factor(ubatch_size) * size_factor
         if not flash_attn_enabled:

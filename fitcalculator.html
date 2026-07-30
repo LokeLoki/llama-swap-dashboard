@@ -761,23 +761,6 @@ function estimate() {
     return 65 + 0.55 * Math.min(ub, 2048) + 0.18 * Math.max(0, ub - 2048);
   }
 
-  let cudaCtx, compute, fa, sync;
-  if (backend === "vulkan") {
-    cudaCtx = 35 * ngpu;
-    compute = (28 + ubatch * 0.35) * sizeFactor * ngpu;
-    fa = useFa ? 0 : (ctx > 32768 ? 35 : ctx > 8192 ? 18 : 8) * sizeFactor * ngpu;
-    sync = ngpu > 1 ? 18 * sizeFactor * ngpu : 0;
-  } else if (backend === "rocm") {
-    cudaCtx = 90 * ngpu;
-    compute = (50 + ubatch * 0.55) * sizeFactor * ngpu;
-    fa = useFa ? 0 : (ctx > 16384 ? 55 : 22) * sizeFactor * ngpu;
-    sync = ngpu > 1 ? 30 * sizeFactor * ngpu : 0;
-  } else {
-    // ── CUDA multi-GPU aware (audited July 2026) ──────────────────────────────
-    // Primary GPU pays the main context cost; secondary GPUs pay a lighter auxiliary cost.
-    // Calibrated against real dual 5060 Ti nvidia-smi telemetry.
-    cudaCtx = 220 + 90 * (ngpu - 1);
-
     // Base compute stays single-GPU sized.
     // Extra multi-GPU cost uses diminishing returns so the formula stays safe up to the
     // advertised 8-GPU limit and does not run away.
@@ -791,6 +774,19 @@ function estimate() {
           0.04 * Math.max(0, n - 6);               // 7–8
       return 1.0 + extra;
     }
+
+  let cudaCtx, compute, fa, sync;
+  if (backend === "vulkan") {
+    cudaCtx = 35 * ngpu;
+    compute = (28 + ubatch * 0.35) * sizeFactor * multiGpuComputeScale(ngpu);
+    fa = useFa ? 0 : (ctx > 32768 ? 35 : ctx > 8192 ? 18 : 8) * sizeFactor * ngpu;
+    sync = ngpu > 1 ? 18 * sizeFactor * ngpu : 0;
+  } else if (backend === "rocm") {
+    cudaCtx = 90 * ngpu;
+    compute = (50 + ubatch * 0.55) * sizeFactor * multiGpuComputeScale(ngpu);
+    fa = useFa ? 0 : (ctx > 16384 ? 55 : 22) * sizeFactor * ngpu;
+    sync = ngpu > 1 ? 30 * sizeFactor * ngpu : 0;
+  } else {
 
     compute = ubatchFactor(ubatch) * sizeFactor * multiGpuComputeScale(ngpu);
 
