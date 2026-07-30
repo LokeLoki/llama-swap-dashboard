@@ -727,8 +727,8 @@ function estimate() {
       const n = Math.min(+$("moeCpuN").value, totalExperts);
       expertOffloadRatio = n / totalExperts;
     }
-    // ~82 % of MoE weight mass lives in the experts (tuned)
-    weightMb *= (1.0 - 0.82 * expertOffloadRatio);
+    // ~72 % of MoE weight mass lives in the experts (tuned)
+    weightMb *= (1.0 - 0.72 * expertOffloadRatio);
   }
 
   let weightOnGpu;
