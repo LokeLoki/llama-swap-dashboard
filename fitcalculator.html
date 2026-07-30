@@ -278,8 +278,6 @@ const ARCH = {
   "qwen3.5-122b-a10b":{layers:64, kv:8, dim:256, kind:"hybrid", eff:16, moe:true, label:"Qwen3.5 122B-A10B", w:{q4_k_m:65000,q5_k_m:78000,q6_k:92000,q8_0:120000,f16:230000} },
   "qwen3.5-397b-a17b":{layers:72, kv:8, dim:256, kind:"hybrid", eff:18, moe:true, label:"Qwen3.5 397B-A17B", w:{q4_k_m:180000,q5_k_m:220000,q6_k:260000,q8_0:340000,f16:700000} },
   "bonsai":          { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, label:"Bonsai 27B (1-bit Qwen3.6)", w:{q1_0:3994,tq1_0:3994,q2_0:7200,tq2_0:7200,q4_k_m:9000,f16:54000} },
-  "ornith":          { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, label:"Ornith (Qwen3.5-based)", w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
-
   "qwen3-32b": { layers:64, kv:8, dim:128, kind:"dense", label:"Qwen3 32B", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
   "qwen3-14b": { layers:40, kv:8, dim:128, kind:"dense", label:"Qwen3 14B", w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,f16:28000} },
   "qwen3-8b":  { layers:36, kv:8, dim:128, kind:"dense", label:"Qwen3 8B",  w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,f16:16000} },
@@ -369,7 +367,7 @@ function populate() {
       "qwen3.6-27b","qwen3.5-27b","qwen3.5-9b","qwen3.5-8b",
       "qwen3.6-35b-a3b","qwen3.5-35b-a3b","qwen3.5-122b-a10b","qwen3.5-397b-a17b"
     ],
-    "Special / derivative": ["bonsai","ornith"],
+    "Special / derivative": ["bonsai"],
     "Qwen 3 / 2.5": [
       "qwen3-32b","qwen3-14b","qwen3-8b","qwen3-4b",
       "qwen3-30b-a3b","qwen3-235b-a22b",
@@ -495,7 +493,6 @@ function guessArchAndQuant(filename) {
   if (!arch) {
     if (/qwen3\.6.*27b|qwen3-6.*27/.test(lower)) arch = "qwen3.6-27b";
     else if (/bonsai/.test(lower)) arch = "bonsai";
-    else if (/ornith/.test(lower)) arch = "ornith";
   }
   return { arch, quant };
 }
