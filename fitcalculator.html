@@ -12,164 +12,94 @@
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 16px 20px 40px;
+    margin: 0; padding: 14px 18px 36px;
     font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-    background: var(--bg); color: var(--text); line-height: 1.45;
+    background: var(--bg); color: var(--text); line-height: 1.4;
   }
-  h1 { font-size: 1.3rem; margin: 0 0 2px; }
-  .sub { color: var(--muted); font-size: 0.88rem; margin-bottom: 14px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 1180px; }
+  h1 { font-size: 1.25rem; margin: 0 0 2px; }
+  .sub { color: var(--muted); font-size: 0.84rem; margin-bottom: 12px; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 1140px; }
   @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
   .card {
     background: var(--panel); border: 1px solid var(--border);
-    border-radius: 10px; padding: 14px 16px;
+    border-radius: 10px; padding: 12px 14px;
   }
   .card h2 {
-    font-size: 0.78rem; text-transform: uppercase; letter-spacing: 0.05em;
-    color: var(--muted); margin: 0 0 10px; font-weight: 600;
+    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
+    color: var(--muted); margin: 12px 0 8px; font-weight: 600;
   }
+  .card h2:first-child { margin-top: 0; }
   label.row {
-    display: grid; grid-template-columns: 132px 1fr 64px;
-    align-items: center; gap: 8px; margin-bottom: 8px; font-size: 0.9rem;
+    display: grid; grid-template-columns: 118px 1fr 58px;
+    align-items: center; gap: 7px; margin-bottom: 7px; font-size: 0.87rem;
   }
-  label.row.full { grid-template-columns: 132px 1fr; }
-  label.row span.val { text-align: right; font-variant-numeric: tabular-nums; color: var(--accent2); font-size: 0.85rem; }
+  label.row.full { grid-template-columns: 118px 1fr; }
+  label.row span.val {
+    text-align: right; font-variant-numeric: tabular-nums;
+    color: var(--accent2); font-size: 0.82rem;
+  }
   input[type=range] { width: 100%; accent-color: var(--accent); }
-  select, input[type=number] {
+  select, input[type=number], input[type=text] {
     width: 100%; background: var(--input); border: 1px solid var(--border);
-    color: var(--text); border-radius: 6px; padding: 5px 8px; font-size: 0.9rem;
+    color: var(--text); border-radius: 6px; padding: 5px 8px; font-size: 0.87rem;
   }
-  .toggles { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 6px; }
-  .toggles label { display: flex; align-items: center; gap: 5px; font-size: 0.88rem; cursor: pointer; }
-  .result-big { font-size: 2.1rem; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
-  .result-sub { color: var(--muted); font-size: 0.88rem; margin-top: 2px; }
-  .bars { margin-top: 12px; }
-  .bar-row { margin-bottom: 7px; }
-  .bar-label { display: flex; justify-content: space-between; font-size: 0.82rem; margin-bottom: 2px; }
-  .bar-track { height: 9px; background: #21262d; border-radius: 5px; overflow: hidden; }
+  .toggles { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 4px; }
+  .toggles label { display: flex; align-items: center; gap: 4px; font-size: 0.84rem; cursor: pointer; }
+  .result-big { font-size: 2rem; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
+  .result-sub { color: var(--muted); font-size: 0.84rem; margin-top: 2px; }
+  .bars { margin-top: 10px; }
+  .bar-row { margin-bottom: 6px; }
+  .bar-label { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 2px; }
+  .bar-track { height: 8px; background: #21262d; border-radius: 4px; overflow: hidden; }
   .bar-seg { height: 100%; }
-  table.breakdown { width: 100%; border-collapse: collapse; font-size: 0.88rem; margin-top: 6px; }
-  table.breakdown td { padding: 3px 0; border-bottom: 1px solid #21262d; }
+  table.breakdown { width: 100%; border-collapse: collapse; font-size: 0.84rem; margin-top: 4px; }
+  table.breakdown td { padding: 2px 0; border-bottom: 1px solid #21262d; }
   table.breakdown td:last-child { text-align: right; font-variant-numeric: tabular-nums; color: var(--accent2); }
-  .note { font-size: 0.78rem; color: var(--muted); margin-top: 10px; }
-  .pill {
-    display: inline-block; padding: 1px 7px; border-radius: 999px;
-    font-size: 0.72rem; background: #21262d; color: var(--muted); margin-right: 4px;
-  }
+  .note { font-size: 0.75rem; color: var(--muted); margin-top: 8px; }
   .fit-ok { color: var(--accent); } .fit-tight { color: var(--warn); } .fit-no { color: var(--danger); }
-  .arch-meta { font-size: 0.8rem; color: var(--muted); margin: -4px 0 10px; min-height: 1.2em; }
-  /* Generated CLI Command */
+  .arch-meta { font-size: 0.78rem; color: var(--muted); margin: -2px 0 8px; min-height: 1.1em; }
   .cmd-box {
-    position: relative;
-    background: #0d1117;
-    border: 1px solid var(--border);
-    border-radius: 6px;
-    padding: 10px 12px;
-    margin-top: 6px;
+    position: relative; background: #0d1117; border: 1px solid var(--border);
+    border-radius: 6px; padding: 9px 11px; margin-top: 4px;
   }
   .cmd-box pre {
-    margin: 0;
-    font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
-    font-size: 0.78rem;
-    color: var(--accent2);
-    white-space: pre-wrap;
-    word-break: break-all;
-    padding-right: 60px;
-    line-height: 1.55;
+    margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+    font-size: 0.76rem; color: var(--accent2); white-space: pre-wrap; word-break: break-all;
+    padding-right: 56px; line-height: 1.5;
   }
   .cmd-box button {
-    position: absolute;
-    top: 8px;
-    right: 8px;
-    background: var(--input);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 4px;
-    padding: 3px 9px;
-    font-size: 0.72rem;
-    cursor: pointer;
-    transition: background 0.15s, color 0.15s;
+    position: absolute; top: 7px; right: 7px; background: var(--input);
+    border: 1px solid var(--border); color: var(--text); border-radius: 4px;
+    padding: 2px 8px; font-size: 0.7rem; cursor: pointer;
   }
-  .cmd-box button:hover {
-    background: var(--border);
-    color: var(--accent);
-  }
-  .cmd-box button.copied {
-    color: var(--accent);
-  }
-  /* Model scan / drop zone */
+  .cmd-box button:hover, .cmd-box button.copied { color: var(--accent); }
   .drop-zone {
-    border: 1px dashed var(--border);
-    border-radius: 6px;
-    padding: 14px;
-    text-align: center;
-    color: var(--muted);
-    font-size: 0.82rem;
-    margin-bottom: 10px;
-    transition: border-color 0.15s, background 0.15s;
+    border: 1px dashed var(--border); border-radius: 6px; padding: 11px;
+    text-align: center; color: var(--muted); font-size: 0.8rem; margin-bottom: 8px;
     background: #161b2244;
   }
-  .drop-zone.dragover {
-    border-color: var(--accent2);
-    background: #1f6feb15;
-    color: var(--accent2);
-  }
+  .drop-zone.dragover { border-color: var(--accent2); background: #1f6feb15; color: var(--accent2); }
   .drop-zone button {
-    background: var(--input);
-    border: 1px solid var(--border);
-    color: var(--text);
-    border-radius: 6px;
-    padding: 6px 12px;
-    font-size: 0.82rem;
-    cursor: pointer;
+    background: var(--input); border: 1px solid var(--border); color: var(--text);
+    border-radius: 6px; padding: 5px 10px; font-size: 0.8rem; cursor: pointer;
   }
-  .drop-zone button.primary {
-    background: #1f6feb22;
-    border-color: #1f6feb;
-    color: var(--accent2);
-  }
-  .drop-zone button:hover {
-    background: var(--border);
-  }
-  .model-list {
-    max-height: 160px;
-    overflow-y: auto;
-    margin-bottom: 10px;
-    font-size: 0.8rem;
-  }
+  .drop-zone button.primary { background: #1f6feb22; border-color: #1f6feb; color: var(--accent2); }
+  .model-list { max-height: 140px; overflow-y: auto; margin-bottom: 8px; font-size: 0.78rem; }
   .model-list .item {
-    display: flex;
-    justify-content: space-between;
-    gap: 8px;
-    padding: 4px 6px;
-    border-radius: 4px;
-    cursor: pointer;
+    display: flex; justify-content: space-between; gap: 8px; padding: 3px 6px;
+    border-radius: 4px; cursor: pointer;
   }
-  .model-list .item:hover,
-  .model-list .item.active {
-    background: #21262d;
-  }
-  .model-list .item .name {
-    overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
-    color: var(--text);
-  }
-  .model-list .item .size {
-    color: var(--accent2);
-    font-variant-numeric: tabular-nums;
-    flex-shrink: 0;
-  }
+  .model-list .item:hover, .model-list .item.active { background: #21262d; }
+  .model-list .item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .model-list .item .size { color: var(--accent2); font-variant-numeric: tabular-nums; flex-shrink: 0; }
 </style>
 </head>
 <body>
   <h1>GGUF VRAM Calculator</h1>
-  <div class="sub">
-    Architecture-aware estimator (hybrid, dual-geometry, MLA, split KV, residual, OS/display overhead).
-    Same core formulas as llama-swap-dashboard · MIT
-  </div>
+  <div class="sub">Architecture-aware · hybrid / dual-geometry / MLA / residual · same core formulas as llama-swap-dashboard</div>
 
   <div class="grid">
+    <!-- ════════ LEFT ════════ -->
     <div class="card">
       <h2>Model</h2>
       <label class="row full">
@@ -183,26 +113,23 @@
         <select id="weightQuant"></select>
       </label>
       <label class="row full">
-        <span>Weight size override</span>
+        <span>Size override</span>
         <div style="display:flex;gap:6px;align-items:center">
           <input type="number" id="weightOverride" min="0" step="0.1" placeholder="auto from quant" style="flex:1">
-          <span style="color:var(--muted);font-size:0.8rem">GB</span>
+          <span style="color:var(--muted);font-size:0.78rem">GB</span>
         </div>
       </label>
-
       <label class="row full">
         <span>Model path</span>
         <input type="text" id="modelPath" placeholder="./models/model.gguf" spellcheck="false"
-               style="font-family:ui-monospace,monospace;font-size:0.85rem;background:var(--input);border:1px solid var(--border);color:var(--text);border-radius:6px;padding:5px 8px;width:100%">
+               style="font-family:ui-monospace,monospace;font-size:0.82rem">
       </label>
 
       <div id="dropZone" class="drop-zone">
-        <div style="margin-bottom:6px">Drop .gguf file(s) here</div>
-        <div style="display:flex;gap:8px;justify-content:center;flex-wrap:wrap">
-          <button type="button" id="scanFolderBtn" class="primary" style="display:none">
-            Scan models folder
-          </button>
-          <button type="button" id="browseBtn">Browse files</button>
+        <div style="margin-bottom:5px">Drop .gguf file(s) or browse</div>
+        <div style="display:flex;gap:7px;justify-content:center;flex-wrap:wrap">
+          <button type="button" id="scanFolderBtn" class="primary" style="display:none">Scan folder</button>
+          <button type="button" id="browseBtn">Browse</button>
           <button type="button" id="clearScanBtn" style="display:none">Clear</button>
         </div>
         <input type="file" id="ggufInput" accept=".gguf" multiple hidden>
@@ -218,7 +145,7 @@
         <select id="ctv"></select>
       </label>
 
-      <h2 style="margin-top:14px">Context &amp; offload</h2>
+      <h2>Context &amp; offload</h2>
       <label class="row">
         <span>Context (-c)</span>
         <input type="range" id="ctx" min="2048" max="1048576" step="1024" value="65536">
@@ -240,11 +167,11 @@
         <span class="val" id="ubatchVal">512</span>
       </label>
 
-      <h2 style="margin-top:14px">Extras</h2>
+      <h2>Extras</h2>
       <div class="toggles">
         <label><input type="checkbox" id="mmproj"> mmproj</label>
-        <label><input type="checkbox" id="mtp"> MTP / draft-mtp</label>
-        <label><input type="checkbox" id="ot"> -ot style</label>
+        <label><input type="checkbox" id="mtp"> MTP</label>
+        <label><input type="checkbox" id="ot"> -ot</label>
         <label><input type="checkbox" id="fa" checked> flash-attn</label>
       </div>
       <label class="row" id="mmprojRow" style="display:none">
@@ -270,19 +197,18 @@
           <option value="vulkan">Vulkan</option>
         </select>
       </label>
-
       <label class="row">
         <span>Port</span>
-        <input type="number" id="port" min="1" max="65535" step="1" value="8080">
+        <input type="number" id="port" min="1" max="65535" value="8080">
         <span class="val" id="portVal">8080</span>
       </label>
 
       <label class="row full" id="moeOffloadRow" style="display:none">
-        <span>MoE expert offload</span>
+        <span>MoE experts</span>
         <select id="moeOffload">
-          <option value="none">None (all experts on GPU)</option>
-          <option value="all">--cpu-moe (all experts on CPU)</option>
-          <option value="partial">--n-cpu-moe N (partial)</option>
+          <option value="none">None (all on GPU)</option>
+          <option value="all">--cpu-moe (all on CPU)</option>
+          <option value="partial">--n-cpu-moe N</option>
         </select>
       </label>
       <label class="row" id="moeCpuNRow" style="display:none">
@@ -291,20 +217,20 @@
         <span class="val" id="moeCpuNVal">20</span>
       </label>
 
-      <h2 style="margin-top:14px">OS / display overhead</h2>
+      <h2>OS / display reserve</h2>
       <label class="row full">
         <span>OS profile</span>
         <select id="osProfile">
-          <option value="none">None (headless / pure estimate)</option>
-          <option value="linux-light">Linux light desktop (~0.4–0.8 GB)</option>
-          <option value="linux-full" selected>Linux full desktop (~0.8–1.5 GB)</option>
-          <option value="win-light">Windows light (DWM + shell ~1.0–1.5 GB)</option>
-          <option value="win-full">Windows full (DWM + browser/Discord ~1.5–3.0 GB)</option>
-          <option value="custom">Custom slider</option>
+          <option value="none">None (headless)</option>
+          <option value="linux-light">Linux light (~0.4–0.8 GB)</option>
+          <option value="linux-full" selected>Linux full (~0.8–1.5 GB)</option>
+          <option value="win-light">Windows light (~1.0–1.5 GB)</option>
+          <option value="win-full">Windows full + Discord (~1.5–3.0 GB)</option>
+          <option value="custom">Custom</option>
         </select>
       </label>
       <label class="row" id="osCustomRow" style="display:none">
-        <span>Custom OS+display</span>
+        <span>Custom OS</span>
         <input type="range" id="osCustom" min="0" max="4096" step="64" value="1024">
         <span class="val" id="osCustomVal">1.0 GB</span>
       </label>
@@ -320,128 +246,118 @@
       </label>
     </div>
 
+    <!-- ════════ RIGHT ════════ -->
     <div class="card">
       <h2>Estimate</h2>
       <div class="result-big" id="totalGb">—</div>
       <div class="result-sub" id="fitLine">—</div>
       <div class="bars" id="bars"></div>
       <table class="breakdown" id="table"></table>
-      <h2 style="margin-top:16px">Generated CLI Command</h2>
+
+      <h2 style="margin-top:14px">CLI command</h2>
       <div class="cmd-box">
         <pre id="cliCmd"></pre>
         <button id="copyBtn" type="button" onclick="copyCli()">Copy</button>
       </div>
       <div class="note">
-        Model estimate uses the dashboard formulas. OS/display is a planning reserve so the
-        number matches what you actually have free under a desktop session. Live SMI remains authoritative.
+        Model estimate uses the dashboard formulas. OS/display is a planning reserve.
+        Live nvidia-smi / amd-smi remains authoritative.
       </div>
     </div>
   </div>
 
 <script>
-/* ═══════════════════════════════════════════════════════════
-   Architecture table — mirrors llama-swap-dashboard
-   [layers, kv_heads, head_dim, kind, extra]
-   kind: dense | hybrid | iswa | dual | mla
-   ═══════════════════════════════════════════════════════════ */
+/* ── Architecture table (mirrors dashboard) ── */
 const ARCH = {
-  // Qwen 3.6 / 3.5 hybrid
-  "qwen3.6-27b":      { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, w:{q4_k_m:16500,q5_k_m:19200,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
-  "qwen3.5-27b":      { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, w:{q4_k_m:16500,q5_k_m:19200,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
-  "qwen3.5-9b":       { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
-  "qwen3.5-8b":       { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,iq4_xs:4200,f16:16000} },
-  "qwen3.6-35b-a3b":  { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
-  "qwen3.5-35b-a3b":  { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
-  "qwen3.5-122b-a10b":{ layers:64, kv:8, dim:256, kind:"hybrid", eff:16, moe:true, w:{q4_k_m:65000,q5_k_m:78000,q6_k:92000,q8_0:120000,iq4_xs:58000,f16:230000} },
-  "qwen3.5-397b-a17b":{ layers:72, kv:8, dim:256, kind:"hybrid", eff:18, moe:true, w:{q4_k_m:180000,q5_k_m:220000,q6_k:260000,q8_0:340000,iq4_xs:160000,f16:700000} },
-  "ornith":           { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
-  "bonsai":           { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, w:{q1_0:3994,q2_0:7200,q4_k_m:9000,f16:54000} },
+  "qwen3.6-27b":     { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, label:"Qwen3.6 27B", w:{q4_k_m:16500,q5_k_s:19300,q5_k_m:19800,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
+  "qwen3.5-27b":     { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, label:"Qwen3.5 27B", w:{q4_k_m:16500,q5_k_s:19300,q5_k_m:19800,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
+  "qwen3.5-9b":      { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, label:"Qwen3.5 9B",  w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
+  "qwen3.5-8b":      { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, label:"Qwen3.5 8B",  w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,iq4_xs:4200,f16:16000} },
+  "qwen3.6-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, label:"Qwen3.6 35B-A3B", w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
+  "qwen3.5-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, label:"Qwen3.5 35B-A3B", w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
+  "qwen3.5-122b-a10b":{layers:64, kv:8, dim:256, kind:"hybrid", eff:16, moe:true, label:"Qwen3.5 122B-A10B", w:{q4_k_m:65000,q5_k_m:78000,q6_k:92000,q8_0:120000,f16:230000} },
+  "qwen3.5-397b-a17b":{layers:72, kv:8, dim:256, kind:"hybrid", eff:18, moe:true, label:"Qwen3.5 397B-A17B", w:{q4_k_m:180000,q5_k_m:220000,q6_k:260000,q8_0:340000,f16:700000} },
+  "bonsai":          { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, label:"Bonsai 27B (1-bit Qwen3.6)", w:{q1_0:3994,tq1_0:3994,q2_0:7200,tq2_0:7200,q4_k_m:9000,f16:54000} },
+  "ornith":          { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, label:"Ornith (Qwen3.5-based)", w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
 
-  // Qwen 3 dense / MoE
-  "qwen3-32b":        { layers:64, kv:8, dim:128, kind:"dense", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
-  "qwen3-14b":        { layers:40, kv:8, dim:128, kind:"dense", w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,iq4_xs:7500,f16:28000} },
-  "qwen3-8b":         { layers:36, kv:8, dim:128, kind:"dense", w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,iq4_xs:4200,f16:16000} },
-  "qwen3-4b":         { layers:36, kv:8, dim:128, kind:"dense", w:{q4_k_m:2500,q5_k_m:3000,q6_k:3500,q8_0:4500,iq4_xs:2200,f16:8000} },
-  "qwen3-30b-a3b":    { layers:48, kv:4, dim:128, kind:"dense", moe:true, w:{q4_k_m:17000,q5_k_m:20000,q6_k:24000,q8_0:31000,iq4_xs:15000,f16:60000} },
-  "qwen3-235b-a22b":  { layers:94, kv:4, dim:128, kind:"dense", moe:true, w:{q4_k_m:120000,q5_k_m:145000,q6_k:170000,q8_0:220000,iq4_xs:110000,f16:440000} },
+  "qwen3-32b": { layers:64, kv:8, dim:128, kind:"dense", label:"Qwen3 32B", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
+  "qwen3-14b": { layers:40, kv:8, dim:128, kind:"dense", label:"Qwen3 14B", w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,f16:28000} },
+  "qwen3-8b":  { layers:36, kv:8, dim:128, kind:"dense", label:"Qwen3 8B",  w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,f16:16000} },
+  "qwen3-4b":  { layers:36, kv:8, dim:128, kind:"dense", label:"Qwen3 4B",  w:{q4_k_m:2500,q5_k_m:3000,q6_k:3500,q8_0:4500,f16:8000} },
+  "qwen3-30b-a3b": { layers:48, kv:4, dim:128, kind:"dense", moe:true, label:"Qwen3 30B-A3B", w:{q4_k_m:17000,q5_k_m:20000,q6_k:24000,q8_0:31000,f16:60000} },
+  "qwen3-235b-a22b":{layers:94, kv:4, dim:128, kind:"dense", moe:true, label:"Qwen3 235B-A22B", w:{q4_k_m:120000,q5_k_m:145000,q6_k:170000,q8_0:220000,f16:440000} },
 
-  // Qwen 2.5
-  "qwen2.5-72b":      { layers:80, kv:8, dim:128, kind:"dense", w:{q4_k_m:40000,q5_k_m:48000,q6_k:56000,q8_0:72000,iq4_xs:36000,f16:144000} },
-  "qwen2.5-32b":      { layers:64, kv:8, dim:128, kind:"dense", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
-  "qwen2.5-14b":      { layers:48, kv:8, dim:128, kind:"dense", w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,iq4_xs:7500,f16:28000} },
-  "qwen2.5-7b":       { layers:28, kv:4, dim:128, kind:"dense", w:{q4_k_m:4200,q5_k_m:5000,q6_k:5800,q8_0:7500,iq4_xs:3800,f16:14000} },
-  "qwen2.5-3b":       { layers:36, kv:2, dim:128, kind:"dense", w:{q4_k_m:1900,q5_k_m:2300,q6_k:2700,q8_0:3400,iq4_xs:1700,f16:6000} },
+  "qwen2.5-72b": { layers:80, kv:8, dim:128, kind:"dense", label:"Qwen2.5 72B", w:{q4_k_m:40000,q5_k_m:48000,q6_k:56000,q8_0:72000,f16:144000} },
+  "qwen2.5-32b": { layers:64, kv:8, dim:128, kind:"dense", label:"Qwen2.5 32B", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,f16:64000} },
+  "qwen2.5-14b": { layers:48, kv:8, dim:128, kind:"dense", label:"Qwen2.5 14B", w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,f16:28000} },
+  "qwen2.5-7b":  { layers:28, kv:4, dim:128, kind:"dense", label:"Qwen2.5 7B",  w:{q4_k_m:4200,q5_k_m:5000,q6_k:5800,q8_0:7500,f16:14000} },
+  "qwen2.5-3b":  { layers:36, kv:2, dim:128, kind:"dense", label:"Qwen2.5 3B",  w:{q4_k_m:1900,q5_k_m:2300,q6_k:2700,q8_0:3400,f16:6000} },
 
-  // Llama 3.x / 4
-  "llama3.1-405b":    { layers:126, kv:8, dim:128, kind:"dense", w:{q4_k_m:210000,q5_k_m:250000,q6_k:300000,q8_0:400000,iq4_xs:190000,f16:800000} },
-  "llama3.1-70b":     { layers:80, kv:8, dim:128, kind:"dense", w:{q4_k_m:38000,q5_k_m:46000,q6_k:54000,q8_0:70000,iq4_xs:34000,f16:140000} },
-  "llama3.1-8b":      { layers:32, kv:8, dim:128, kind:"dense", w:{q4_k_m:4500,q5_k_m:5400,q6_k:6200,q8_0:8000,iq4_xs:4000,f16:16000} },
-  "llama3.3-70b":     { layers:80, kv:8, dim:128, kind:"dense", w:{q4_k_m:38000,q5_k_m:46000,q6_k:54000,q8_0:70000,iq4_xs:34000,f16:140000} },
-  "llama3.2-3b":      { layers:28, kv:8, dim:128, kind:"dense", w:{q4_k_m:1900,q5_k_m:2300,q6_k:2700,q8_0:3400,iq4_xs:1700,f16:6000} },
-  "llama3.2-1b":      { layers:16, kv:4, dim:64,  kind:"dense", w:{q4_k_m:700,q5_k_m:850,q6_k:1000,q8_0:1300,iq4_xs:600,f16:2400} },
-  "llama4-scout":     { layers:48, kv:8, dim:128, kind:"dense", moe:true, w:{q4_k_m:56000,q5_k_m:68000,q6_k:80000,q8_0:105000,iq4_xs:50000,f16:210000} },
-  "llama4-maverick":  { layers:80, kv:8, dim:128, kind:"dense", moe:true, w:{q4_k_m:200000,q5_k_m:240000,q6_k:280000,q8_0:370000,iq4_xs:180000,f16:740000} },
+  "llama3.1-8b":  { layers:32, kv:8, dim:128, kind:"dense", label:"Llama 3.1 8B",  w:{q4_k_m:4500,q5_k_m:5400,q6_k:6200,q8_0:8000,f16:16000} },
+  "llama3.1-70b": { layers:80, kv:8, dim:128, kind:"dense", label:"Llama 3.1 70B", w:{q4_k_m:38000,q5_k_m:46000,q6_k:54000,q8_0:70000,f16:140000} },
+  "llama3.1-405b":{ layers:126,kv:8, dim:128, kind:"dense", label:"Llama 3.1 405B",w:{q4_k_m:210000,q5_k_m:250000,q6_k:300000,q8_0:400000,f16:800000} },
+  "llama3.3-70b": { layers:80, kv:8, dim:128, kind:"dense", label:"Llama 3.3 70B", w:{q4_k_m:38000,q5_k_m:46000,q6_k:54000,q8_0:70000,f16:140000} },
+  "llama3.2-3b":  { layers:28, kv:8, dim:128, kind:"dense", label:"Llama 3.2 3B",  w:{q4_k_m:1900,q5_k_m:2300,q6_k:2700,q8_0:3400,f16:6000} },
+  "llama3.2-1b":  { layers:16, kv:4, dim:64,  kind:"dense", label:"Llama 3.2 1B",  w:{q4_k_m:700,q5_k_m:850,q6_k:1000,q8_0:1300,f16:2400} },
+  "llama4-scout": { layers:48, kv:8, dim:128, kind:"dense", moe:true, label:"Llama 4 Scout", w:{q4_k_m:56000,q5_k_m:68000,q6_k:80000,q8_0:105000,f16:210000} },
+  "llama4-maverick":{layers:80,kv:8, dim:128, kind:"dense", moe:true, label:"Llama 4 Maverick", w:{q4_k_m:200000,q5_k_m:240000,q6_k:280000,q8_0:370000,f16:740000} },
 
-  // Gemma
-  "gemma2-27b":       { layers:46, kv:16, dim:128, kind:"iswa", window:4096, w:{q4_k_m:15500,q5_k_m:18500,q6_k:21500,q8_0:28000,iq4_xs:14000,f16:54000} },
-  "gemma2-9b":        { layers:42, kv:8, dim:256, kind:"iswa", window:4096, w:{q4_k_m:5500,q5_k_m:6500,q6_k:7500,q8_0:9500,iq4_xs:5000,f16:18000} },
-  "gemma2-2b":        { layers:26, kv:4, dim:256, kind:"iswa", window:4096, w:{q4_k_m:1600,q5_k_m:1900,q6_k:2200,q8_0:2800,iq4_xs:1400,f16:5000} },
-  "gemma4-31b":       { layers:60, kv:4, dim:512, kind:"dual",
-    geo:{ sliding:{n:50,kv:16,dim:256}, global:{n:10,kv:4,dim:512,k_eq_v:true}, window:1024 },
-    w:{q4_k_m:17500,q5_k_m:21000,q6_k:24500,q8_0:32000,iq4_xs:15500,f16:62000} },
-  "gemma4-26b-a4b":   { layers:30, kv:2, dim:512, kind:"dual",
-    geo:{ sliding:{n:25,kv:8,dim:256}, global:{n:5,kv:2,dim:512,k_eq_v:true}, window:1024 },
-    w:{q4_k_m:14000,q5_k_m:17000,q6_k:20000,q8_0:26000,iq4_xs:12500,f16:50000} },
-  "gemma4-12b":       { layers:48, kv:2, dim:512, kind:"dual",
-    geo:{ sliding:{n:40,kv:8,dim:256}, global:{n:8,kv:2,dim:512,k_eq_v:true}, window:1024 },
-    w:{q4_k_m:7000,q5_k_m:8500,q6_k:10000,q8_0:13000,iq4_xs:6200,f16:24000} },
-  "gemma4-e4b":       { layers:42, kv:1, dim:512, kind:"dual",
-    geo:{ sliding:{n:35,kv:2,dim:256}, global:{n:7,kv:1,dim:512,k_eq_v:false}, window:512 },
-    w:{q4_k_m:2800,q5_k_m:3400,q6_k:4000,q8_0:5200,iq4_xs:2500,f16:9000} },
-  "gemma4-e2b":       { layers:35, kv:1, dim:512, kind:"dual",
-    geo:{ sliding:{n:28,kv:1,dim:256}, global:{n:7,kv:1,dim:512,k_eq_v:false}, window:512 },
-    w:{q4_k_m:1500,q5_k_m:1800,q6_k:2100,q8_0:2800,iq4_xs:1300,f16:5000} },
+  "gemma2-2b":  { layers:26, kv:4, dim:256, kind:"iswa", window:4096, label:"Gemma 2 2B",  w:{q4_k_m:1600,q5_k_m:1900,q6_k:2200,q8_0:2800,f16:5000} },
+  "gemma2-9b":  { layers:42, kv:8, dim:256, kind:"iswa", window:4096, label:"Gemma 2 9B",  w:{q4_k_m:5500,q5_k_m:6500,q6_k:7500,q8_0:9500,f16:18000} },
+  "gemma2-27b": { layers:46, kv:16,dim:128, kind:"iswa", window:4096, label:"Gemma 2 27B", w:{q4_k_m:15500,q5_k_m:18500,q6_k:21500,q8_0:28000,f16:54000} },
+  "gemma4-e2b": { layers:35, kv:1, dim:512, kind:"dual", label:"Gemma 4 E2B",
+    geo:{sliding:{n:28,kv:1,dim:256},global:{n:7,kv:1,dim:512,k_eq_v:false},window:512},
+    w:{q4_k_m:1500,q5_k_m:1800,q6_k:2100,q8_0:2800,f16:5000} },
+  "gemma4-e4b": { layers:42, kv:1, dim:512, kind:"dual", label:"Gemma 4 E4B",
+    geo:{sliding:{n:35,kv:2,dim:256},global:{n:7,kv:1,dim:512,k_eq_v:false},window:512},
+    w:{q4_k_m:2800,q5_k_m:3400,q6_k:4000,q8_0:5200,f16:9000} },
+  "gemma4-12b": { layers:48, kv:2, dim:512, kind:"dual", label:"Gemma 4 12B",
+    geo:{sliding:{n:40,kv:8,dim:256},global:{n:8,kv:2,dim:512,k_eq_v:true},window:1024},
+    w:{q4_k_m:7000,q5_k_m:8500,q6_k:10000,q8_0:13000,f16:24000} },
+  "gemma4-26b-a4b":{layers:30,kv:2,dim:512,kind:"dual",moe:true,label:"Gemma 4 26B-A4B",
+    geo:{sliding:{n:25,kv:8,dim:256},global:{n:5,kv:2,dim:512,k_eq_v:true},window:1024},
+    w:{q4_k_m:14000,q5_k_m:17000,q6_k:20000,q8_0:26000,f16:50000} },
+  "gemma4-31b": { layers:60, kv:4, dim:512, kind:"dual", label:"Gemma 4 31B",
+    geo:{sliding:{n:50,kv:16,dim:256},global:{n:10,kv:4,dim:512,k_eq_v:true},window:1024},
+    w:{q4_k_m:17500,q5_k_m:21000,q6_k:24500,q8_0:32000,f16:62000} },
 
-  // DeepSeek / MLA
-  "deepseek-v3":      { layers:61, kv:128, dim:128, kind:"mla", w:{q4_k_m:350000,q5_k_m:420000,q6_k:500000,q8_0:650000,iq4_xs:320000,f16:1300000} },
-  "deepseek-r1":      { layers:61, kv:128, dim:128, kind:"mla", w:{q4_k_m:350000,q5_k_m:420000,q6_k:500000,q8_0:650000,iq4_xs:320000,f16:1300000} },
+  "deepseek-v3": { layers:61, kv:128, dim:128, kind:"mla", label:"DeepSeek V3", w:{q4_k_m:350000,q5_k_m:420000,q6_k:500000,q8_0:650000,f16:1300000} },
+  "deepseek-r1": { layers:61, kv:128, dim:128, kind:"mla", label:"DeepSeek R1", w:{q4_k_m:350000,q5_k_m:420000,q6_k:500000,q8_0:650000,f16:1300000} },
 
-  // Laguna
-  "laguna-s-2.1":     { layers:48, kv:8, dim:128, kind:"dense", w:{q4_k_m:55000,q5_k_m:66000,q6_k:78000,q8_0:100000,iq4_xs:50000,f16:200000} },
-  "laguna-xs-2.1":    { layers:40, kv:8, dim:128, kind:"dense", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
+  "mistral-7b":    { layers:32, kv:8, dim:128, kind:"dense", label:"Mistral 7B",    w:{q4_k_m:4200,q5_k_m:5000,q6_k:5800,q8_0:7500,f16:14000} },
+  "mistral-nemo-2":{ layers:40, kv:8, dim:128, kind:"dense", label:"Mistral Nemo 2", w:{q4_k_m:7200,q5_k_m:8600,q6_k:10000,q8_0:13000,f16:24000} },
+  "codestral":     { layers:40, kv:8, dim:128, kind:"dense", label:"Codestral",     w:{q4_k_m:12000,q5_k_m:14500,q6_k:17000,q8_0:22000,f16:42000} },
+  "mixtral-8x7b":  { layers:32, kv:8, dim:128, kind:"dense", moe:true, label:"Mixtral 8×7B",  w:{q4_k_m:26000,q5_k_m:31000,q6_k:36000,q8_0:47000,f16:90000} },
+  "mixtral-8x22b": { layers:56, kv:8, dim:128, kind:"dense", moe:true, label:"Mixtral 8×22B", w:{q4_k_m:80000,q5_k_m:95000,q6_k:110000,q8_0:145000,f16:280000} },
 
-  // Mistral family
-  "mistral-7b":       { layers:32, kv:8, dim:128, kind:"dense", w:{q4_k_m:4200,q5_k_m:5000,q6_k:5800,q8_0:7500,iq4_xs:3800,f16:14000} },
-  "mixtral-8x7b":     { layers:32, kv:8, dim:128, kind:"dense", moe:true, w:{q4_k_m:26000,q5_k_m:31000,q6_k:36000,q8_0:47000,iq4_xs:24000,f16:90000} },
-  "mixtral-8x22b":    { layers:56, kv:8, dim:128, kind:"dense", moe:true, w:{q4_k_m:80000,q5_k_m:95000,q6_k:110000,q8_0:145000,iq4_xs:72000,f16:280000} },
-  "codestral":        { layers:40, kv:8, dim:128, kind:"dense", w:{q4_k_m:12000,q5_k_m:14500,q6_k:17000,q8_0:22000,iq4_xs:11000,f16:42000} },
-  "mistral-nemo-2":   { layers:40, kv:8, dim:128, kind:"dense", w:{q4_k_m:7200,q5_k_m:8600,q6_k:10000,q8_0:13000,iq4_xs:6500,f16:24000} },
-
-  // Others
-  "phi-4":            { layers:40, kv:10, dim:128, kind:"dense", w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,iq4_xs:7500,f16:28000} },
-  "phi-3.5":          { layers:32, kv:32, dim:96,  kind:"dense", w:{q4_k_m:2200,q5_k_m:2600,q6_k:3100,q8_0:4000,iq4_xs:2000,f16:7500} },
-  "command-r-plus":   { layers:64, kv:96, dim:128, kind:"dense", w:{q4_k_m:55000,q5_k_m:66000,q6_k:78000,q8_0:100000,iq4_xs:50000,f16:200000} },
-  "command-r":        { layers:40, kv:64, dim:128, kind:"dense", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
-  "yi-34b":           { layers:60, kv:8, dim:128, kind:"dense", w:{q4_k_m:19000,q5_k_m:23000,q6_k:27000,q8_0:35000,iq4_xs:17000,f16:68000} },
-  "nemotron-h-56b":   { layers:118, kv:8, dim:128, kind:"hybrid", eff:10, w:{q4_k_m:30000,q5_k_m:36000,q6_k:42000,q8_0:55000,iq4_xs:27000,f16:110000} },
-  "nemotron-h-8b":    { layers:52, kv:8, dim:128, kind:"hybrid", eff:5, w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,iq4_xs:4200,f16:16000} },
+  "phi-4":   { layers:40, kv:10, dim:128, kind:"dense", label:"Phi-4",   w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,f16:28000} },
+  "phi-3.5": { layers:32, kv:32, dim:96,  kind:"dense", label:"Phi-3.5", w:{q4_k_m:2200,q5_k_m:2600,q6_k:3100,q8_0:4000,f16:7500} },
+  "command-r":     { layers:40, kv:64, dim:128, kind:"dense", label:"Command-R",     w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,f16:64000} },
+  "command-r-plus":{ layers:64, kv:96, dim:128, kind:"dense", label:"Command-R+",    w:{q4_k_m:55000,q5_k_m:66000,q6_k:78000,q8_0:100000,f16:200000} },
+  "yi-34b":  { layers:60, kv:8, dim:128, kind:"dense", label:"Yi 34B",  w:{q4_k_m:19000,q5_k_m:23000,q6_k:27000,q8_0:35000,f16:68000} },
+  "nemotron-h-8b":  { layers:52,  kv:8, dim:128, kind:"hybrid", eff:4,  label:"Nemotron-H 8B",  w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,f16:16000} },
+  "nemotron-h-56b": { layers:118, kv:8, dim:128, kind:"hybrid", eff:10, label:"Nemotron-H 56B", w:{q4_k_m:30000,q5_k_m:36000,q6_k:42000,q8_0:55000,f16:110000} },
 };
 
-const CACHE_BYTES = {
-  f16:2.0, bf16:2.0, q8_0:1.0, fp8:1.0, q6_k:0.75,
-  q5_k_m:0.625, q5_0:0.625, q4_k_m:0.5, q4_0:0.5, iq4_xs:0.5,
-  q3_k_m:0.375, q2_k:0.25
-};
-const CACHE_OPTS = Object.keys(CACHE_BYTES);
-const WEIGHT_OPTS = ["q1_0","q2_0","iq4_xs","q4_k_m","q5_k_m","q6_k","q8_0","f16"];
+const CACHE_BYTES = { f16:2.0, q8_0:1.0, q4_0:0.5 };
+const CACHE_OPTS  = ["f16", "q8_0", "q4_0"];   // restricted as requested
+
+/* Exhaustive but practical weight quant list */
+const WEIGHT_OPTS = [
+  "q1_0","tq1_0","q2_0","tq2_0","q2_k",
+  "q3_k_s","q3_k_m",
+  "iq4_xs","q4_0","q4_k_s","q4_k_m",
+  "q5_k_s","q5_k_m",
+  "q6_k","q8_0","f16","bf16"
+];
 
 const OS_PROFILES = {
-  none:        { base:0,   spread:0 },
+  none:        { base:0,    spread:0 },
   "linux-light":{ base:400, spread:400 },
   "linux-full": { base:800, spread:700 },
   "win-light":  { base:1100,spread:400 },
   "win-full":   { base:1800,spread:1200 },
-  custom:      { base:0,   spread:0 },
+  custom:      { base:0,    spread:0 },
 };
 
 function $(id){ return document.getElementById(id); }
@@ -449,32 +365,62 @@ function $(id){ return document.getElementById(id); }
 function populate() {
   const a = $("arch");
   const groups = {
-    "Qwen 3.6 / 3.5 hybrid": ["qwen3.6-27b","qwen3.5-27b","qwen3.5-9b","qwen3.5-8b","qwen3.6-35b-a3b","qwen3.5-35b-a3b","qwen3.5-122b-a10b","qwen3.5-397b-a17b","ornith","bonsai"],
-    "Qwen 3 / 2.5": ["qwen3-32b","qwen3-14b","qwen3-8b","qwen3-4b","qwen3-30b-a3b","qwen3-235b-a22b","qwen2.5-72b","qwen2.5-32b","qwen2.5-14b","qwen2.5-7b","qwen2.5-3b"],
-    "Llama": ["llama3.1-8b","llama3.1-70b","llama3.1-405b","llama3.3-70b","llama3.2-3b","llama3.2-1b","llama4-scout","llama4-maverick"],
-    "Gemma": ["gemma2-2b","gemma2-9b","gemma2-27b","gemma4-e2b","gemma4-e4b","gemma4-12b","gemma4-26b-a4b","gemma4-31b"],
+    "Qwen 3.6 / 3.5 hybrid": [
+      "qwen3.6-27b","qwen3.5-27b","qwen3.5-9b","qwen3.5-8b",
+      "qwen3.6-35b-a3b","qwen3.5-35b-a3b","qwen3.5-122b-a10b","qwen3.5-397b-a17b"
+    ],
+    "Special / derivative": ["bonsai","ornith"],
+    "Qwen 3 / 2.5": [
+      "qwen3-32b","qwen3-14b","qwen3-8b","qwen3-4b",
+      "qwen3-30b-a3b","qwen3-235b-a22b",
+      "qwen2.5-72b","qwen2.5-32b","qwen2.5-14b","qwen2.5-7b","qwen2.5-3b"
+    ],
+    "Llama": [
+      "llama3.1-8b","llama3.1-70b","llama3.1-405b",
+      "llama3.3-70b","llama3.2-3b","llama3.2-1b",
+      "llama4-scout","llama4-maverick"
+    ],
+    "Gemma": [
+      "gemma2-2b","gemma2-9b","gemma2-27b",
+      "gemma4-e2b","gemma4-e4b","gemma4-12b","gemma4-26b-a4b","gemma4-31b"
+    ],
     "DeepSeek MLA": ["deepseek-v3","deepseek-r1"],
-    "Mistral / Mixtral": ["mistral-7b","mistral-nemo-2","codestral","mixtral-8x7b","mixtral-8x22b"],
-    "Other": ["laguna-xs-2.1","laguna-s-2.1","phi-4","phi-3.5","command-r","command-r-plus","yi-34b","nemotron-h-8b","nemotron-h-56b"],
+    "Mistral / Mixtral": [
+      "mistral-7b","mistral-nemo-2","codestral","mixtral-8x7b","mixtral-8x22b"
+    ],
+    "Other": [
+      "phi-4","phi-3.5","command-r","command-r-plus","yi-34b",
+      "nemotron-h-8b","nemotron-h-56b"
+    ],
   };
+
   for (const [label, keys] of Object.entries(groups)) {
-    const og = document.createElement("optgroup"); og.label = label;
+    const og = document.createElement("optgroup");
+    og.label = label;
     keys.forEach(k => {
       if (!ARCH[k]) return;
-      const o = document.createElement("option"); o.value = k; o.textContent = k;
+      const o = document.createElement("option");
+      o.value = k;
+      o.textContent = ARCH[k].label || k;
       if (k === "qwen3.6-27b") o.selected = true;
       og.appendChild(o);
     });
     a.appendChild(og);
   }
+
   WEIGHT_OPTS.forEach(k => {
-    const o = document.createElement("option"); o.value = k; o.textContent = k.toUpperCase();
+    const o = document.createElement("option");
+    o.value = k;
+    o.textContent = k.toUpperCase();
     if (k === "q4_k_m") o.selected = true;
     $("weightQuant").appendChild(o);
   });
+
   CACHE_OPTS.forEach(k => {
     ["ctk","ctv"].forEach(id => {
-      const o = document.createElement("option"); o.value = k; o.textContent = k;
+      const o = document.createElement("option");
+      o.value = k;
+      o.textContent = k;
       if (k === "q8_0") o.selected = true;
       $(id).appendChild(o);
     });
@@ -490,7 +436,6 @@ function fmtCtx(n) {
 function calcKV(arch, kB, vB, tokens) {
   const bpe = kB + vB;
   if (arch.kind === "mla") {
-    // ~70 KB/token at F16, scale by avg bytes vs 2.0
     const avg = (kB + vB) / 2;
     return (70.0 * tokens / 1024) * (avg / 2.0);
   }
@@ -516,64 +461,41 @@ function osOverheadMb() {
   const profile = $("osProfile").value;
   if (profile === "custom") return +$("osCustom").value;
   const p = OS_PROFILES[profile] || OS_PROFILES.none;
-  // midpoint of the typical range
   return p.base + p.spread * 0.5;
 }
 
-/* ── GGUF size scanner ────────────────────────────────────── */
-let scannedModels = []; // { name, sizeGb, file }
+/* ── GGUF scanner (unchanged logic) ── */
+let scannedModels = [];
 let activeModelFileName = null;
 
 function buildModelPath(filename) {
   const prefix = localStorage.getItem("ggufPathPrefix") || "./models/";
   return prefix.replace(/\/?$/, "/") + filename;
 }
-
-function canUseFolderPicker() {
-  return "showDirectoryPicker" in window;
-}
-
-function formatSizeGb(bytes) {
-  return (bytes / (1024 ** 3)).toFixed(2);
-}
+function canUseFolderPicker() { return "showDirectoryPicker" in window; }
+function formatSizeGb(bytes) { return (bytes / (1024 ** 3)).toFixed(2); }
 
 function guessArchAndQuant(filename) {
   const lower = filename.toLowerCase().replace(/\.gguf$/, "");
   const quantMap = [
-    [/q8_0|q8\.0/, "q8_0"],
-    [/q6_k/, "q6_k"],
-    [/q5_k_m|q5_k\.m/, "q5_k_m"],
-    [/q5_k_s|q5_0/, "q5_k_s"],
-    [/q4_k_m|q4_k\.m/, "q4_k_m"],
-    [/q4_k_s|q4_0/, "q4_k_s"],
-    [/iq4_xs/, "iq4_xs"],
-    [/iq4_xxs/, "iq4_xxs"],
-    [/q3_k/, "q3_k_m"],
-    [/q2_k/, "q2_k"],
-    [/f16|fp16/, "f16"],
-    [/bf16/, "bf16"],
+    [/q8_0|q8\.0/, "q8_0"], [/q6_k/, "q6_k"],
+    [/q5_k_m|q5_k\.m/, "q5_k_m"], [/q5_k_s|q5_0/, "q5_k_s"],
+    [/q4_k_m|q4_k\.m/, "q4_k_m"], [/q4_k_s|q4_0/, "q4_k_s"],
+    [/iq4_xs/, "iq4_xs"], [/q3_k/, "q3_k_m"], [/q2_k/, "q2_k"],
+    [/q1_0|tq1/, "q1_0"], [/f16|fp16/, "f16"], [/bf16/, "bf16"],
   ];
   let quant = null;
-  for (const [re, q] of quantMap) {
-    if (re.test(lower)) { quant = q; break; }
-  }
-  // Architecture detection — longest / most specific keys first
-  const archKeys = Object.keys(ARCH).sort((a, b) => b.length - a.length);
+  for (const [re, q] of quantMap) if (re.test(lower)) { quant = q; break; }
+
+  const archKeys = Object.keys(ARCH).sort((a,b) => b.length - a.length);
   let arch = null;
   for (const k of archKeys) {
-    if (lower.includes(k.replace(/-/g, "")) || lower.includes(k)) {
-      arch = k;
-      break;
-    }
+    if (lower.includes(k.replace(/-/g,"")) || lower.includes(k)) { arch = k; break; }
   }
-  // Common aliases
   if (!arch) {
     if (/qwen3\.6.*27b|qwen3-6.*27/.test(lower)) arch = "qwen3.6-27b";
-    else if (/qwen3\.5.*27b/.test(lower)) arch = "qwen3.5-27b";
-    else if (/gemma-?4.*31b/.test(lower)) arch = "gemma4-31b";
-    else if (/gemma-?4.*26b/.test(lower)) arch = "gemma4-26b-a4b";
-    else if (/command-?r-?plus/.test(lower)) arch = "command-r-plus";
-    else if (/command-?r/.test(lower)) arch = "command-r";
+    else if (/bonsai/.test(lower)) arch = "bonsai";
+    else if (/ornith/.test(lower)) arch = "ornith";
   }
   return { arch, quant };
 }
@@ -590,12 +512,7 @@ function applyModel(model) {
   }
   if (guess.quant) {
     const sel = $("weightQuant");
-    for (const opt of sel.options) {
-      if (opt.value === guess.quant) {
-        sel.value = guess.quant;
-        break;
-      }
-    }
+    for (const opt of sel.options) if (opt.value === guess.quant) { sel.value = guess.quant; break; }
   }
   estimate();
 }
@@ -610,12 +527,10 @@ function renderModelList() {
   list.style.display = "block";
   $("clearScanBtn").style.display = "inline-block";
   list.innerHTML = scannedModels
-    .sort((a, b) => b.sizeGb - a.sizeGb)
-    .map((m, i) => `
-      <div class="item" data-idx="${i}">
-        <span class="name" title="${m.name}">${m.name}</span>
-        <span class="size">${m.sizeGb} GB</span>
-      </div>`).join("");
+    .sort((a,b) => b.sizeGb - a.sizeGb)
+    .map((m,i) => `<div class="item" data-idx="${i}">
+      <span class="name" title="${m.name}">${m.name}</span>
+      <span class="size">${m.sizeGb} GB</span></div>`).join("");
   list.querySelectorAll(".item").forEach(el => {
     el.addEventListener("click", () => {
       list.querySelectorAll(".item").forEach(x => x.classList.remove("active"));
@@ -629,119 +544,90 @@ async function scanFolder() {
   try {
     const dir = await window.showDirectoryPicker();
     scannedModels = [];
-    async function walk(handle, depth = 0) {
+    async function walk(handle, depth=0) {
       for await (const entry of handle.values()) {
         if (entry.kind === "file" && entry.name.toLowerCase().endsWith(".gguf")) {
           const file = await entry.getFile();
           scannedModels.push({ name: entry.name, sizeGb: formatSizeGb(file.size), file });
         } else if (entry.kind === "directory" && depth < 1) {
-          await walk(entry, depth + 1);
+          await walk(entry, depth+1);
         }
       }
     }
     await walk(dir);
     renderModelList();
     if (scannedModels.length === 1) applyModel(scannedModels[0]);
-  } catch (err) {
-    if (err.name !== "AbortError") console.warn(err);
-  }
+  } catch (err) { if (err.name !== "AbortError") console.warn(err); }
 }
 
 function handleFiles(fileList) {
   const files = [...fileList].filter(f => f.name.toLowerCase().endsWith(".gguf"));
   if (!files.length) return;
-  scannedModels = files.map(f => ({
-    name: f.name, sizeGb: formatSizeGb(f.size), file: f
-  }));
+  scannedModels = files.map(f => ({ name:f.name, sizeGb:formatSizeGb(f.size), file:f }));
   renderModelList();
   if (scannedModels.length === 1) applyModel(scannedModels[0]);
 }
 
 function initScanner() {
-  const scanBtn = $("scanFolderBtn");
   const dropZone = $("dropZone");
-  const input = $("ggufInput");
-  const clearBtn = $("clearScanBtn");
   if (canUseFolderPicker()) {
-    scanBtn.style.display = "inline-block";
-    scanBtn.addEventListener("click", scanFolder);
+    $("scanFolderBtn").style.display = "inline-block";
+    $("scanFolderBtn").addEventListener("click", scanFolder);
   }
-  clearBtn.addEventListener("click", () => {
-    scannedModels = [];
-    activeModelFileName = null;
-    $("modelPath").value = "";
-    renderModelList();
-    $("weightOverride").value = "";
-    estimate();
+  $("clearScanBtn").addEventListener("click", () => {
+    scannedModels = []; activeModelFileName = null;
+    $("modelPath").value = ""; $("weightOverride").value = "";
+    renderModelList(); estimate();
   });
-  $("browseBtn").addEventListener("click", (e) => {
-    e.stopPropagation();
-    $("ggufInput").click();
-  });
-  dropZone.addEventListener("click", (e) => {
-    if (e.target.tagName !== "BUTTON") $("ggufInput").click();
-  });
-  input.addEventListener("change", () => handleFiles(input.files));
-  dropZone.addEventListener("dragover", e => {
-    e.preventDefault();
-    dropZone.classList.add("dragover");
-  });
+  $("browseBtn").addEventListener("click", e => { e.stopPropagation(); $("ggufInput").click(); });
+  dropZone.addEventListener("click", e => { if (e.target.tagName !== "BUTTON") $("ggufInput").click(); });
+  $("ggufInput").addEventListener("change", () => handleFiles($("ggufInput").files));
+  dropZone.addEventListener("dragover", e => { e.preventDefault(); dropZone.classList.add("dragover"); });
   dropZone.addEventListener("dragleave", () => dropZone.classList.remove("dragover"));
   dropZone.addEventListener("drop", e => {
-    e.preventDefault();
-    dropZone.classList.remove("dragover");
+    e.preventDefault(); dropZone.classList.remove("dragover");
     handleFiles(e.dataTransfer.files);
   });
   $("modelPath").addEventListener("change", () => {
     const val = $("modelPath").value.trim();
     if (val) {
       if (val.includes("/") || val.includes("\\")) {
-        const lastSlash = Math.max(val.lastIndexOf("/"), val.lastIndexOf("\\"));
-        localStorage.setItem("ggufPathPrefix", val.substring(0, lastSlash + 1));
+        const last = Math.max(val.lastIndexOf("/"), val.lastIndexOf("\\"));
+        localStorage.setItem("ggufPathPrefix", val.substring(0, last+1));
       }
       activeModelFileName = val;
-    } else {
-      activeModelFileName = null;
-    }
+    } else activeModelFileName = null;
     estimate();
   });
 }
 
 function updateCliCommand(key, arch) {
-  const ctx     = +$("ctx").value;
-  const layers  = arch.layers;
-  const ngl     = Math.min(+$("ngl").value, layers);
-  const batch   = +$("batch").value;
-  const ubatch  = +$("ubatch").value;
-  const ctk     = $("ctk").value;
-  const ctv     = $("ctv").value;
-  const useFa   = $("fa").checked;
-  const useOt   = $("ot").checked;
+  const ctx = +$("ctx").value;
+  const layers = arch.layers;
+  const ngl = Math.min(+$("ngl").value, layers);
+  const batch = +$("batch").value;
+  const ubatch = +$("ubatch").value;
+  const ctk = $("ctk").value;
+  const ctv = $("ctv").value;
+  const useFa = $("fa").checked;
+  const useOt = $("ot").checked;
   const useMmproj = $("mmproj").checked;
-  const useMtp  = $("mtp").checked;
-  const mtpN    = +$("mtpN").value;
-  const ngpu    = +$("ngpu").value;
+  const useMtp = $("mtp").checked;
+  const mtpN = +$("mtpN").value;
+  const ngpu = +$("ngpu").value;
   const moeMode = $("moeOffload").value;
   const moeCpuN = +$("moeCpuN").value;
 
-  // Build flag array (no trailing backslashes — handled at render time)
-  const flags = [];
-  flags.push(`llama-server`);
-  const modelPath = ($("modelPath") && $("modelPath").value.trim())
-    || activeModelFileName
-    || `<path-to-${key}.gguf>`;
+  const flags = ["llama-server"];
+  const modelPath = ($("modelPath").value.trim()) || activeModelFileName || `<path-to-${key}.gguf>`;
   flags.push(`-m ${modelPath}`);
   flags.push(`-c ${ctx}`);
-  // Skip -ngl when full offload (llama-server default = all layers on GPU)
   if (ngl < layers) flags.push(`-ngl ${ngl}`);
   flags.push(`-b ${batch}`);
   flags.push(`-ub ${ubatch}`);
   flags.push(`-ctk ${ctk}`);
   flags.push(`-ctv ${ctv}`);
-  const port = +$("port").value || 8080;
-  flags.push(`--port ${port}`);
-
-  // Optional flags
+  flags.push(`--port ${+$("port").value || 8080}`);
   if (useFa) flags.push(`-fa`);
   if (useOt) flags.push(`-ot`);
   if (useMmproj) flags.push(`--mmproj <path-to-mmproj.gguf>`);
@@ -749,56 +635,28 @@ function updateCliCommand(key, arch) {
     flags.push(`--spec-type draft-mtp`);
     flags.push(`--spec-draft-n-max ${mtpN}`);
   }
-
-  // MoE expert offload
   if (arch.moe) {
     if (moeMode === "all") flags.push(`--cpu-moe`);
     else if (moeMode === "partial" && moeCpuN > 0) flags.push(`--n-cpu-moe ${moeCpuN}`);
   }
 
-  // Render as wrapped multiline
-  const cmd = flags.join(" \\");
-  $("cliCmd").textContent = cmd + "\n";
-
-  // Contextual comments (not in the copyable command)
-  const comments = [];
-  if (useOt) comments.push(`# -ot: large tensors stay on CPU (experts, lm_head)`);
-  if (ngpu > 1) comments.push(`# multi-GPU: add -ts 1,1 or --split-mode layer as needed`);
-  if (comments.length) {
-    $("cliCmd").textContent += "\n" + comments.join("\n");
-  }
+  $("cliCmd").textContent = flags.join(" \\\n  ") + "\n";
+  if (useOt) $("cliCmd").textContent += "\n# -ot keeps large tensors on CPU";
+  if (ngpu > 1) $("cliCmd").textContent += "\n# multi-GPU: add -ts … or --split-mode layer";
 }
 
 function copyCli() {
   const raw = $("cliCmd").textContent;
-  // Strip comment lines and collapse backslash-newlines into a single line
-  const clean = raw
-    .split("\n")
-    .filter(l => !l.trim().startsWith("#"))
-    .join(" ")
-    .replace(/ \\\s+/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
-
+  const clean = raw.split("\n").filter(l => !l.trim().startsWith("#"))
+    .join(" ").replace(/\\\s+/g," ").replace(/\s+/g," ").trim();
   navigator.clipboard.writeText(clean).then(() => {
     const btn = $("copyBtn");
-    btn.textContent = "Copied!";
-    btn.classList.add("copied");
-    setTimeout(() => {
-      btn.textContent = "Copy";
-      btn.classList.remove("copied");
-    }, 1800);
+    btn.textContent = "Copied!"; btn.classList.add("copied");
+    setTimeout(() => { btn.textContent = "Copy"; btn.classList.remove("copied"); }, 1600);
   }).catch(() => {
-    // Fallback for older browsers / insecure context
     const ta = document.createElement("textarea");
-    ta.value = clean;
-    document.body.appendChild(ta);
-    ta.select();
-    document.execCommand("copy");
-    document.body.removeChild(ta);
-    const btn = $("copyBtn");
-    btn.textContent = "Copied!";
-    setTimeout(() => { btn.textContent = "Copy"; }, 1800);
+    ta.value = clean; document.body.appendChild(ta); ta.select();
+    document.execCommand("copy"); document.body.removeChild(ta);
   });
 }
 
@@ -807,14 +665,12 @@ function estimate() {
   const arch = ARCH[key];
   if (!arch) return;
 
-  // meta
   const bits = [`${arch.layers}L`, `kv=${arch.kv}×${arch.dim}`, arch.kind];
   if (arch.eff) bits.push(`effKV=${arch.eff}`);
   if (arch.moe) bits.push("MoE");
   if (arch.window) bits.push(`win=${arch.window}`);
   $("archMeta").textContent = bits.join(" · ");
 
-  // weights
   const wq = $("weightQuant").value;
   let weightMb = (arch.w && arch.w[wq]) ? arch.w[wq] : (arch.w && arch.w.q4_k_m) ? arch.w.q4_k_m : 16000;
   const override = parseFloat($("weightOverride").value);
@@ -836,8 +692,8 @@ function estimate() {
   const targetGb = +$("target").value;
   const reserveMb = +$("reserve").value;
   const desktopMb = osOverheadMb();
-
   let mmprojMb = useMmproj ? +$("mmprojMb").value : 0;
+
   let draftCacheMb = 0;
   if (useMtp) {
     const n = +$("mtpN").value;
@@ -847,27 +703,24 @@ function estimate() {
   }
 
   let cacheMb = calcKV(arch, kB, vB, ctx);
-
-  // offload
   let offloadRatio = Math.max(0, Math.min(ngl, layers)) / layers;
   if (useOt && offloadRatio > 0 && offloadRatio < 1) offloadRatio = Math.min(offloadRatio, 0.85);
 
   const isHybrid = arch.kind === "hybrid";
-  const isMoe = arch.moe || false;
+  const isMoe = !!arch.moe;
   const residualLayers = isHybrid ? 1.6 : 2.1;
   const perLayer = weightMb / layers;
   const residualMb = Math.max(400, Math.min(4500, perLayer * residualLayers));
 
-  let weightOnGpu;
-  // MoE expert offload weight reduction
   let expertOffloadRatio = 0;
-  const moeOffloadMode = $("moeOffload").value;
   if (isMoe) {
-    if (moeOffloadMode === "all") expertOffloadRatio = 1.0;
-    else if (moeOffloadMode === "partial") expertOffloadRatio = +$("moeCpuN").value / layers;
+    const mode = $("moeOffload").value;
+    if (mode === "all") expertOffloadRatio = 1.0;
+    else if (mode === "partial") expertOffloadRatio = +$("moeCpuN").value / layers;
     weightMb *= (1.0 - 0.75 * expertOffloadRatio);
   }
 
+  let weightOnGpu;
   if (offloadRatio > 0 && offloadRatio < 1) {
     const scalable = Math.max(0, weightMb - residualMb);
     weightOnGpu = residualMb + scalable * offloadRatio;
@@ -876,31 +729,20 @@ function estimate() {
   }
   cacheMb *= offloadRatio;
 
-  // fixed linear-attn / SSM state
   let deltaMb = 0;
-  if (arch.kind === "hybrid") {
+  if (isHybrid) {
     const nonKv = layers - (arch.eff || Math.round(layers * 0.25));
     const per = key.includes("nemotron") ? 6.0 : 4.5;
     deltaMb = nonKv * offloadRatio * per;
   }
 
-  // runtime overhead
   const hybridDiscount = isHybrid ? 0.75 : 1.0;
   let sizeFactor = Math.max(0.25, Math.min(3.5, (weightMb / 16500) * hybridDiscount));
-  // MoE active-weight correction
   if (isMoe) {
-    if (key.includes("a")) {
-      const totalMatch = key.match(/(\d+)b-a(\d+)b/);
-      if (totalMatch) {
-        const totalB = +totalMatch[1];
-        const activeB = +totalMatch[2];
-        sizeFactor = Math.max(0.25, Math.min(3.5, (weightMb * activeB / totalB) / 16500));
-      }
-    } else if (key.startsWith("mixtral")) {
-      const activeB = key.includes("8x7") ? 12.5 : key.includes("8x22") ? 46 : 12.5;
-      sizeFactor = Math.max(0.25, Math.min(3.5, (activeB * 1000 / 4.3) / 16500));
-    }
+    const m = key.match(/(\d+)b-a(\d+)b/);
+    if (m) sizeFactor = Math.max(0.25, Math.min(3.5, (weightMb * (+m[2]) / (+m[1])) / 16500));
   }
+
   let cudaCtx, compute, fa, sync;
   if (backend === "vulkan") {
     cudaCtx = 35 * ngpu;
@@ -923,50 +765,47 @@ function estimate() {
     } else fa = 0;
     sync = ngpu > 1 ? 40 * sizeFactor * ngpu : 0;
   }
-  // FA on: no full QK materialization → compute buffer stays lean
-  // FA off: extra materialization overhead added to compute
   if (!useFa) {
     const matExtra = (backend === "cuda" ? 40 : backend === "rocm" ? 30 : 20) * sizeFactor * ngpu;
     compute += matExtra;
   }
-  let overheadMb = cudaCtx + compute + fa + sync;
-  // Offload scaling — smooth transition, no hard cliff
+
   if (offloadRatio > 0 && offloadRatio < 1) {
     const scaleFactor = Math.max(0.3, Math.min(1.0, offloadRatio * 1.4 - 0.2));
     cudaCtx *= scaleFactor; compute *= scaleFactor; fa *= scaleFactor; sync *= scaleFactor;
   }
-  // Mild per-component discounts (size_factor already did most of the work)
   if (isHybrid) { cudaCtx *= 0.93; compute *= 0.93; fa *= 0.93; sync *= 0.93; }
-  if (isMoe) { cudaCtx *= 0.95; compute *= 0.95; fa *= 0.95; sync *= 0.95; }
-  overheadMb = cudaCtx + compute + fa + sync;
-  // Backend-specific ceiling
-  let ceiling;
-  if (backend === "vulkan") ceiling = 0.12 * weightMb + 220;
-  else if (backend === "rocm") ceiling = 0.18 * weightMb + 320;
-  else ceiling = 0.25 * weightMb + 480;
+  if (isMoe)    { cudaCtx *= 0.95; compute *= 0.95; fa *= 0.95; sync *= 0.95; }
+
+  let overheadMb = cudaCtx + compute + fa + sync;
+  const ceiling = backend === "vulkan" ? 0.12*weightMb+220
+                : backend === "rocm"   ? 0.18*weightMb+320
+                : 0.25*weightMb+480;
   overheadMb = Math.min(overheadMb, ceiling);
 
   const modelStatic = weightOnGpu + mmprojMb + cacheMb + draftCacheMb + deltaMb;
-  const modelTotal = modelStatic + overheadMb;
+  const modelTotal  = modelStatic + overheadMb;
   const planningTotal = modelTotal + desktopMb + reserveMb;
 
-  // display
   $("totalGb").textContent = (planningTotal / 1024).toFixed(2) + " GB";
   const headroom = targetGb - planningTotal / 1024;
   const fitEl = $("fitLine");
-  if (headroom >= 2) fitEl.innerHTML = `<span class="fit-ok">Fits on ${targetGb} GB</span> · ${headroom.toFixed(1)} GB free after OS/reserve`;
-  else if (headroom >= 0) fitEl.innerHTML = `<span class="fit-tight">Tight on ${targetGb} GB</span> · ${headroom.toFixed(1)} GB free after OS/reserve`;
-  else fitEl.innerHTML = `<span class="fit-no">Over by ${(-headroom).toFixed(1)} GB</span> on ${targetGb} GB (incl. OS/reserve)`;
+  if (headroom >= 2)
+    fitEl.innerHTML = `<span class="fit-ok">Fits on ${targetGb} GB</span> · ${headroom.toFixed(1)} GB free after OS/reserve`;
+  else if (headroom >= 0)
+    fitEl.innerHTML = `<span class="fit-tight">Tight on ${targetGb} GB</span> · ${headroom.toFixed(1)} GB free after OS/reserve`;
+  else
+    fitEl.innerHTML = `<span class="fit-no">Over by ${(-headroom).toFixed(1)} GB</span> on ${targetGb} GB`;
 
   const parts = [
-    { name: "Weights", mb: weightOnGpu, color: "#58a6ff" },
-    { name: "KV cache", mb: cacheMb, color: "#3fb950" },
-    { name: "DeltaNet/SSM state", mb: deltaMb, color: "#d29922" },
-    { name: "mmproj", mb: mmprojMb, color: "#a371f7" },
-    { name: "MTP cache", mb: draftCacheMb, color: "#db61a2" },
-    { name: "Runtime overhead", mb: overheadMb, color: "#8b949e" },
-    { name: "OS / display", mb: desktopMb, color: "#f78166" },
-    { name: "Extra reserve", mb: reserveMb, color: "#6e7681" },
+    { name:"Weights", mb:weightOnGpu, color:"#58a6ff" },
+    { name:"KV cache", mb:cacheMb, color:"#3fb950" },
+    { name:"DeltaNet/SSM", mb:deltaMb, color:"#d29922" },
+    { name:"mmproj", mb:mmprojMb, color:"#a371f7" },
+    { name:"MTP cache", mb:draftCacheMb, color:"#db61a2" },
+    { name:"Runtime", mb:overheadMb, color:"#8b949e" },
+    { name:"OS / display", mb:desktopMb, color:"#f78166" },
+    { name:"Extra reserve", mb:reserveMb, color:"#6e7681" },
   ].filter(p => p.mb > 0.5);
 
   const maxMb = Math.max(planningTotal, targetGb * 1024);
@@ -981,48 +820,49 @@ function estimate() {
     <div class="bar-track"><div class="bar-seg" style="width:${Math.min(100,planningTotal/(targetGb*1024)*100).toFixed(1)}%;background:${headroom>=0?"#3fb950":"#f85149"}"></div></div>
   </div>`;
 
-  const ctk = $("ctk").value, ctv = $("ctv").value;
-  const cacheLabel = ctk === ctv ? ctk : `${ctk}/${ctv}`;
+  const cacheLabel = $("ctk").value === $("ctv").value ? $("ctk").value : `${$("ctk").value}/${$("ctv").value}`;
   const rows = [
-    ["Architecture", key + (arch.moe ? " (MoE)" : "")],
-    ["Kind", arch.kind + (arch.eff ? ` · eff KV layers ${arch.eff}/${layers}` : "")],
+    ["Architecture", (arch.label || key) + (arch.moe ? " (MoE)" : "")],
+    ["Kind", arch.kind + (arch.eff ? ` · eff KV ${arch.eff}/${layers}` : "")],
     ["Weight quant", wq.toUpperCase()],
     ["Weights on GPU", (weightOnGpu/1024).toFixed(2) + " GB"],
     ["Residual fixed", (residualMb/1024).toFixed(2) + " GB"],
     ["KV cache (" + cacheLabel + ")", (cacheMb/1024).toFixed(2) + " GB"],
-    ["Linear/SSM state", deltaMb ? (deltaMb/1024).toFixed(2) + " GB" : "—"],
-    ["mmproj", mmprojMb ? (mmprojMb/1024).toFixed(2) + " GB" : "—"],
-    ["MTP cache", draftCacheMb ? (draftCacheMb/1024).toFixed(2) + " GB" : "—"],
+    ["Linear/SSM state", deltaMb ? (deltaMb/1024).toFixed(2)+" GB" : "—"],
+    ["mmproj", mmprojMb ? (mmprojMb/1024).toFixed(2)+" GB" : "—"],
+    ["MTP cache", draftCacheMb ? (draftCacheMb/1024).toFixed(2)+" GB" : "—"],
     ["Runtime overhead", (overheadMb/1024).toFixed(2) + " GB"],
-    ["  · fixed/context", cudaCtx.toFixed(0) + " MB"],
-    ["  · compute", compute.toFixed(0) + " MB"],
-    ["  · flash-attn", fa.toFixed(0) + " MB"],
-    ["  · GPU sync", sync.toFixed(0) + " MB"],
+    [" · fixed/context", cudaCtx.toFixed(0) + " MB"],
+    [" · compute", compute.toFixed(0) + " MB"],
+    [" · flash-attn", fa.toFixed(0) + " MB"],
+    [" · GPU sync", sync.toFixed(0) + " MB"],
     ["Model subtotal", (modelTotal/1024).toFixed(2) + " GB"],
     ["OS / display", (desktopMb/1024).toFixed(2) + " GB"],
     ["Extra reserve", (reserveMb/1024).toFixed(2) + " GB"],
     ["Planning total", (planningTotal/1024).toFixed(2) + " GB"],
-    ["Offload", `${(offloadRatio*100).toFixed(0)}%  (ngl ${Math.round(offloadRatio*layers)}/${layers})`],
-    isMoe ? ["Expert offload", expertOffloadRatio > 0 ? `${(expertOffloadRatio*100).toFixed(0)}% (${expertOffloadRatio>=1?"all":Math.round(expertOffloadRatio*layers)} on CPU)` : "none"] : null,
-  ].filter(r => r);
+    ["Offload", `${(offloadRatio*100).toFixed(0)}% (ngl ${Math.round(offloadRatio*layers)}/${layers})`],
+    isMoe ? ["Expert offload", expertOffloadRatio > 0
+      ? `${(expertOffloadRatio*100).toFixed(0)}% (${expertOffloadRatio>=1?"all":Math.round(expertOffloadRatio*layers)} on CPU)`
+      : "none"] : null,
+  ].filter(Boolean);
+
   $("table").innerHTML = rows.map(([a,b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join("");
 
-  // ngl max label
   $("ngl").max = layers;
   if (+$("ngl").value > layers) $("ngl").value = layers;
   $("nglVal").textContent = `${Math.min(+$("ngl").value, layers)}/${layers}`;
 
-  // Live CLI command
   updateCliCommand(key, arch);
 }
 
 function bind() {
   const ids = ["arch","weightQuant","weightOverride","ctk","ctv","ctx","ngl","batch","ubatch",
-  "mmproj","mtp","ot","fa","mmprojMb","mtpN","ngpu","backend","port","moeOffload","moeCpuN","osProfile","osCustom","reserve","target"];
+    "mmproj","mtp","ot","fa","mmprojMb","mtpN","ngpu","backend","port","moeOffload","moeCpuN",
+    "osProfile","osCustom","reserve","target"];
   ids.forEach(id => {
     $(id).addEventListener("input", () => {
       if (id === "ctx") $("ctxVal").textContent = fmtCtx(+$("ctx").value);
-      if (id === "ngl") $("nglVal").textContent = `${$("ngl").value}`;
+      if (id === "ngl") $("nglVal").textContent = $("ngl").value;
       if (id === "batch") $("batchVal").textContent = $("batch").value;
       if (id === "ubatch") $("ubatchVal").textContent = $("ubatch").value;
       if (id === "mtpN") $("mtpNVal").textContent = $("mtpN").value;
@@ -1036,13 +876,11 @@ function bind() {
       $("mtpRow").style.display = $("mtp").checked ? "grid" : "none";
       $("osCustomRow").style.display = $("osProfile").value === "custom" ? "grid" : "none";
       if (id === "arch") {
-        // reset ngl to full when switching models
         const layers = ARCH[$("arch").value].layers;
         $("ngl").max = layers; $("ngl").value = layers;
         $("moeOffloadRow").style.display = ARCH[$("arch").value].moe ? "grid" : "none";
         $("moeCpuNRow").style.display = ARCH[$("arch").value].moe && $("moeOffload").value === "partial" ? "grid" : "none";
       }
-      // Toggle partial row when moeOffload select changes
       if (id === "moeOffload") {
         $("moeCpuNRow").style.display = $("moeOffload").value === "partial" ? "grid" : "none";
       }
