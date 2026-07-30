@@ -148,7 +148,7 @@
       <h2>Context &amp; offload</h2>
       <label class="row">
         <span>Context (-c)</span>
-        <input type="range" id="ctx" min="2048" max="1048576" step="1024" value="65536">
+        <input type="range" id="ctx" min="0" max="100" step="1" value="11">
         <span class="val" id="ctxVal">64k</span>
       </label>
       <label class="row">
@@ -431,6 +431,13 @@ function fmtCtx(n) {
   return String(n);
 }
 
+function ctxFromPct(p) {
+  // 0-60% → 2K-350K, 60-90% → 350K-600K, 90-100% → 600K-1M
+  if (p <= 60) return Math.round((2048 + p * 347952 / 60) / 1024) * 1024;
+  if (p <= 90) return Math.round((350000 + (p - 60) * 250000 / 30) / 1024) * 1024;
+  return Math.round((600000 + (p - 90) * 448576 / 10) / 1024) * 1024;
+}
+
 function calcKV(arch, kB, vB, tokens) {
   const bpe = kB + vB;
   if (arch.kind === "mla") {
@@ -599,7 +606,7 @@ function initScanner() {
 }
 
 function updateCliCommand(key, arch) {
-  const ctx = +$("ctx").value;
+  const ctx = ctxFromPct(+$("ctx").value);
   const layers = arch.layers;
   const ngl = Math.min(+$("ngl").value, layers);
   const batch = +$("batch").value;
@@ -675,7 +682,7 @@ function estimate() {
 
   const kB = CACHE_BYTES[$("ctk").value];
   const vB = CACHE_BYTES[$("ctv").value];
-  const ctx = +$("ctx").value;
+  const ctx = ctxFromPct(+$("ctx").value);
   const layers = arch.layers;
   let ngl = Math.min(+$("ngl").value, layers);
   const batch = +$("batch").value;
@@ -858,7 +865,7 @@ function bind() {
     "osProfile","osCustom","reserve","target"];
   ids.forEach(id => {
     $(id).addEventListener("input", () => {
-      if (id === "ctx") $("ctxVal").textContent = fmtCtx(+$("ctx").value);
+      if (id === "ctx") $("ctxVal").textContent = fmtCtx(ctxFromPct(+$("ctx").value));
       if (id === "ngl") $("nglVal").textContent = $("ngl").value;
       if (id === "batch") $("batchVal").textContent = $("batch").value;
       if (id === "ubatch") $("ubatchVal").textContent = $("ubatch").value;
