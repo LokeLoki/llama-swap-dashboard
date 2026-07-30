@@ -458,6 +458,7 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
                 flash_attn_mb = 8.0 * size_factor * num_active_gpus
         sync = (45.0 if backend == "mixed" else 18.0) * size_factor * num_active_gpus if num_active_gpus > 1 else 0.0
         ceiling = 0.12 * (model_weight_mb or 16000.0) + 220.0
+        compute_buffer_total = compute_per_gpu * num_active_gpus
     elif backend in ("rocm", "amd"):
         cuda_context_total = 90.0 * num_active_gpus
         compute_per_gpu = (50.0 + ubatch_size * 0.55) * size_factor
@@ -471,23 +472,39 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
                 flash_attn_mb = 22.0 * size_factor * num_active_gpus
         sync = 30.0 * size_factor * num_active_gpus if num_active_gpus > 1 else 0.0
         ceiling = 0.18 * (model_weight_mb or 16000.0) + 320.0
+        compute_buffer_total = compute_per_gpu * num_active_gpus
     else:
         # CUDA
-        cuda_context_total = 333.0 * num_active_gpus
-        compute_per_gpu = _ubatch_factor(ubatch_size) * size_factor
+        # ── Multi-GPU aware (audited July 2026) ──────────────────────────────
+        # Primary GPU pays the main context cost; secondary GPUs pay lighter auxiliary cost.
+        cuda_context_total = 220.0 + 90.0 * (num_active_gpus - 1)
+
+        # Base compute stays single-GPU sized.
+        # Extra multi-GPU cost uses diminishing returns (safe up to 8 GPUs).
+        def _multi_gpu_compute_scale(n):
+            if n <= 1: return 1.0
+            extra = (0.35 * min(n - 1, 1) +          # 2nd
+                     0.18 * max(0, min(n - 2, 1)) +   # 3rd
+                     0.10 * max(0, min(n - 3, 1)) +   # 4th
+                     0.06 * max(0, min(n - 4, 2)) +   # 5-6
+                     0.04 * max(0, n - 6))             # 7-8
+            return 1.0 + extra
+
+        compute_base = _ubatch_factor(ubatch_size) * size_factor
         if not flash_attn_enabled:
-            compute_per_gpu += 40.0 * size_factor
+            compute_base += 40.0 * size_factor
         flash_attn_mb = 0.0
         if not flash_attn_enabled:
             if ctx_size > 8192:
                 ctx_factor = min(1.8, max(0.35, ctx_size / 130000.0))
-                flash_attn_mb = 130.0 * ctx_factor * size_factor * num_active_gpus
+                # FA saturates; do not let it grow linearly with high GPU counts
+                flash_attn_mb = 130.0 * ctx_factor * size_factor * min(num_active_gpus, 4)
             else:
-                flash_attn_mb = 40.0 * size_factor * num_active_gpus
+                flash_attn_mb = 40.0 * size_factor * min(num_active_gpus, 4)
         sync = 40.0 * size_factor * num_active_gpus if num_active_gpus > 1 else 0.0
         ceiling = 0.25 * (model_weight_mb or 16000.0) + 480.0
 
-    compute_buffer_total = compute_per_gpu * num_active_gpus
+        compute_buffer_total = compute_base * _multi_gpu_compute_scale(num_active_gpus)
 
     # Long-context compute scaling (previous battle-test fix)
     ctx_scale = 1.0 + max(0.0, (ctx_size - 65536) / 180000.0) * 1.65
