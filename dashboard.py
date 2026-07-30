@@ -513,7 +513,7 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
     # ──────────────────────────────────────────────────────────────
     # 3. CUDA (tightened)
     # ──────────────────────────────────────────────────────────────
-    cuda_context_total = 450.0 * num_active_gpus
+    cuda_context_total = 333.0 * num_active_gpus
 
     compute_per_gpu = (65.0 + ubatch_size * 0.80) * size_factor
     # Flash attn on: no full matrix materialization → smaller buffer

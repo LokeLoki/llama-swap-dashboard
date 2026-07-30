@@ -913,7 +913,7 @@ function estimate() {
     fa = useFa ? 0 : (ctx > 16384 ? 55 : 22) * sizeFactor * ngpu;
     sync = ngpu > 1 ? 30 * sizeFactor * ngpu : 0;
   } else {
-    cudaCtx = 450 * ngpu;
+    cudaCtx = 333 * ngpu;
     compute = (65 + ubatch * 0.80) * sizeFactor * ngpu;
     if (!useFa) {
       if (ctx > 8192) {
