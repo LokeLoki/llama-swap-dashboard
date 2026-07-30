@@ -163,7 +163,7 @@
       </label>
       <label class="row">
         <span>Ubatch (-ub)</span>
-        <input type="range" id="ubatch" min="64" max="2048" step="64" value="512">
+        <input type="range" id="ubatch" min="64" max="8192" step="64" value="512">
         <span class="val" id="ubatchVal">512</span>
       </label>
 
@@ -748,51 +748,57 @@ function estimate() {
     if (m) sizeFactor = Math.max(0.25, Math.min(3.5, (weightMb * (+m[2]) / (+m[1])) / 16500));
   }
 
+  // ── Runtime overhead ────────────────────────────────────────────────
+  // Saturating ubatch contribution (realistic up to 8k)
+  function ubatchFactor(ub) {
+    // Rapid rise to ~2048, then strong diminishing returns
+    return 65 + 0.55 * Math.min(ub, 2048) + 0.18 * Math.max(0, ub - 2048);
+  }
+
   let cudaCtx, compute, fa, sync;
   if (backend === "vulkan") {
     cudaCtx = 35 * ngpu;
-    compute = (28 + ubatch * 0.45) * sizeFactor * ngpu;
+    compute = (28 + ubatch * 0.35) * sizeFactor * ngpu;   // milder for Vulkan
     fa = useFa ? 0 : (ctx > 32768 ? 35 : ctx > 8192 ? 18 : 8) * sizeFactor * ngpu;
     sync = ngpu > 1 ? 18 * sizeFactor * ngpu : 0;
   } else if (backend === "rocm") {
     cudaCtx = 90 * ngpu;
-    compute = (50 + ubatch * 0.70) * sizeFactor * ngpu;
+    compute = (50 + ubatch * 0.55) * sizeFactor * ngpu;
     fa = useFa ? 0 : (ctx > 16384 ? 55 : 22) * sizeFactor * ngpu;
     sync = ngpu > 1 ? 30 * sizeFactor * ngpu : 0;
   } else {
     // CUDA
     cudaCtx = 333 * ngpu;
-    compute = (65 + ubatch * 0.80) * sizeFactor * ngpu;
+    compute = ubatchFactor(ubatch) * sizeFactor * ngpu;
     if (!useFa) {
       if (ctx > 8192) {
         const ctxFactor = Math.min(1.8, Math.max(0.35, ctx / 130000));
         fa = 130 * ctxFactor * sizeFactor * ngpu;
-      } else fa = 40 * sizeFactor * ngpu;
-    } else fa = 0;
+      } else {
+        fa = 40 * sizeFactor * ngpu;
+      }
+    } else {
+      fa = 0;
+    }
     sync = ngpu > 1 ? 40 * sizeFactor * ngpu : 0;
   }
+
+  // Materialization extra when flash-attn is off
   if (!useFa) {
     const matExtra = (backend === "cuda" ? 40 : backend === "rocm" ? 30 : 20) * sizeFactor * ngpu;
     compute += matExtra;
   }
 
-  // Long-context compute scaling (previous fix)
+  // Long-context compute scaling (previous battle-test fix)
   const ctxScale = 1.0 + Math.max(0, (ctx - 65536) / 180000) * 1.65;
   compute *= ctxScale;
-  if (ubatch >= 1024) {
-    compute += (ubatch - 512) * 0.35 * sizeFactor * ngpu;
-  }
 
-  // ── Multi-GPU overhaul ──────────────────────────────────────────────
-  // Captures staging / activation traffic / partial buffer replication
-  // that pure per-GPU multiplication misses. Zero impact when ngpu === 1.
+  // Multi-GPU overhaul (staging + context-aware sync)
   if (ngpu > 1) {
     const stagingBase = backend === "cuda" ? 190 : backend === "rocm" ? 145 : 95;
-    // grows with context (PCIe / NVLink traffic + temporary all-gather buffers)
     const staging = (stagingBase + ctx * 0.0021) * sizeFactor * (ngpu - 1);
     compute += staging;
 
-    // stronger + context-aware sync term
     const syncBase = backend === "cuda" ? 58 : backend === "rocm" ? 44 : 26;
     sync = syncBase * sizeFactor * ngpu * (1.0 + Math.min(0.55, ctx / 180000));
   }
