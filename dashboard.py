@@ -437,17 +437,14 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
         backend = BACKEND or "cuda"
 
     # ──────────────────────────────────────────────────────────────
-    # 1. Vulkan / mixed (cross-vendor)
+    # 1. Backend-specific base values
     # ──────────────────────────────────────────────────────────────
     if backend in ("vulkan", "mixed"):
-        fixed_context = 35.0 * num_active_gpus
-
+        cuda_context_total = 35.0 * num_active_gpus
         compute_per_gpu = (28.0 + ubatch_size * 0.45) * size_factor
-        # Flash attn on: no full matrix materialization → smaller buffer
         if not flash_attn_enabled:
-            compute_per_gpu += 20.0 * size_factor  # materialization overhead
-        compute_buffer_total = compute_per_gpu * num_active_gpus
-
+            compute_per_gpu += 20.0 * size_factor
+        flash_attn_mb = 0.0
         if not flash_attn_enabled:
             if ctx_size > 32768:
                 flash_attn_mb = 35.0 * size_factor * num_active_gpus
@@ -455,103 +452,70 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
                 flash_attn_mb = 18.0 * size_factor * num_active_gpus
             else:
                 flash_attn_mb = 8.0 * size_factor * num_active_gpus
-        else:
-            flash_attn_mb = 0.0
-
-        if num_active_gpus > 1:
-            # Cross-vendor pays a bit more for interop / staging
-            sync = (45.0 if backend == "mixed" else 18.0) * size_factor * num_active_gpus
-        else:
-            sync = 0.0
-
-        total = fixed_context + compute_buffer_total + flash_attn_mb + sync
-        weight_ref = model_weight_mb if model_weight_mb and model_weight_mb > 0 else 16000.0
-        total = min(total, 0.12 * weight_ref + 220.0)
-
-        return {
-            "cuda_context_mb": round(fixed_context, 1),
-            "compute_buffer_mb": round(compute_buffer_total, 1),
-            "flash_attn_mb": round(flash_attn_mb, 1),
-            "tensor_sync_mb": round(sync, 1),
-            "total_mb": round(total, 1),
-        }
-
-    # ──────────────────────────────────────────────────────────────
-    # 2. ROCm / HIP
-    # ──────────────────────────────────────────────────────────────
-    if backend in ("rocm", "amd"):
-        fixed_context = 90.0 * num_active_gpus
-
+        sync = (45.0 if backend == "mixed" else 18.0) * size_factor * num_active_gpus if num_active_gpus > 1 else 0.0
+        ceiling = 0.12 * (model_weight_mb or 16000.0) + 220.0
+    elif backend in ("rocm", "amd"):
+        cuda_context_total = 90.0 * num_active_gpus
         compute_per_gpu = (50.0 + ubatch_size * 0.70) * size_factor
-        # Flash attn on: no full matrix materialization → smaller buffer
         if not flash_attn_enabled:
-            compute_per_gpu += 30.0 * size_factor  # materialization overhead
-        compute_buffer_total = compute_per_gpu * num_active_gpus
-
+            compute_per_gpu += 30.0 * size_factor
+        flash_attn_mb = 0.0
         if not flash_attn_enabled:
             if ctx_size > 16384:
-                fa = 55.0 * size_factor * num_active_gpus
+                flash_attn_mb = 55.0 * size_factor * num_active_gpus
             else:
-                fa = 22.0 * size_factor * num_active_gpus
-        else:
-            fa = 0.0
+                flash_attn_mb = 22.0 * size_factor * num_active_gpus
+        sync = 30.0 * size_factor * num_active_gpus if num_active_gpus > 1 else 0.0
+        ceiling = 0.18 * (model_weight_mb or 16000.0) + 320.0
+    else:
+        # CUDA
+        cuda_context_total = 333.0 * num_active_gpus
+        compute_per_gpu = (65.0 + ubatch_size * 0.80) * size_factor
+        if not flash_attn_enabled:
+            compute_per_gpu += 40.0 * size_factor
+        flash_attn_mb = 0.0
+        if not flash_attn_enabled:
+            if ctx_size > 8192:
+                ctx_factor = min(1.8, max(0.35, ctx_size / 130000.0))
+                flash_attn_mb = 130.0 * ctx_factor * size_factor * num_active_gpus
+            else:
+                flash_attn_mb = 40.0 * size_factor * num_active_gpus
+        sync = 40.0 * size_factor * num_active_gpus if num_active_gpus > 1 else 0.0
+        ceiling = 0.25 * (model_weight_mb or 16000.0) + 480.0
 
-        sync = (30.0 * size_factor * num_active_gpus) if num_active_gpus > 1 else 0.0
-
-        total = fixed_context + compute_buffer_total + fa + sync
-        weight_ref = model_weight_mb if model_weight_mb and model_weight_mb > 0 else 16000.0
-        total = min(total, 0.18 * weight_ref + 320.0)
-
-        return {
-            "cuda_context_mb": round(fixed_context, 1),
-            "compute_buffer_mb": round(compute_buffer_total, 1),
-            "flash_attn_mb": round(fa, 1),
-            "tensor_sync_mb": round(sync, 1),
-            "total_mb": round(total, 1),
-        }
-
-    # ──────────────────────────────────────────────────────────────
-    # 3. CUDA (tightened)
-    # ──────────────────────────────────────────────────────────────
-    cuda_context_total = 333.0 * num_active_gpus
-
-    compute_per_gpu = (65.0 + ubatch_size * 0.80) * size_factor
-    # Flash attn on: no full matrix materialization → smaller buffer
-    if not flash_attn_enabled:
-        compute_per_gpu += 40.0 * size_factor  # materialization overhead
     compute_buffer_total = compute_per_gpu * num_active_gpus
 
-    # Long-context compute scaling
+    # Long-context compute scaling (previous fix)
     ctx_scale = 1.0 + max(0.0, (ctx_size - 65536) / 180000.0) * 1.65
     compute_buffer_total *= ctx_scale
     if ubatch_size >= 1024:
         compute_buffer_total += (ubatch_size - 512) * 0.35 * size_factor * num_active_gpus
 
-    if not flash_attn_enabled:
-        if ctx_size > 8192:
-            ctx_factor = min(1.8, max(0.35, ctx_size / 130000.0))
-            flash_attn_mb = 130.0 * ctx_factor * size_factor * num_active_gpus
-        else:
-            flash_attn_mb = 40.0 * size_factor * num_active_gpus
-    else:
-        flash_attn_mb = 0.0
-
+    # ── Multi-GPU overhaul ──────────────────────────────────────────────
+    # Captures staging / activation traffic / partial buffer replication
+    # that pure per-GPU multiplication misses. Zero impact when ngpu === 1.
     if num_active_gpus > 1:
-        tensor_sync_mb = 40.0 * size_factor * num_active_gpus
-    else:
-        tensor_sync_mb = 0.0
+        if backend in ("vulkan", "mixed"):
+            staging_base = 95.0
+            sync_base = 26.0
+        elif backend in ("rocm", "amd"):
+            staging_base = 145.0
+            sync_base = 44.0
+        else:
+            staging_base = 190.0
+            sync_base = 58.0
+        staging = (staging_base + ctx_size * 0.0021) * size_factor * (num_active_gpus - 1)
+        compute_buffer_total += staging
+        sync = sync_base * size_factor * num_active_gpus * (1.0 + min(0.55, ctx_size / 180000.0))
 
-    total = (cuda_context_total + compute_buffer_total +
-             flash_attn_mb + tensor_sync_mb)
-
-    weight_ref = model_weight_mb if model_weight_mb and model_weight_mb > 0 else 16000.0
-    total = min(total, 0.25 * weight_ref + 480.0)
+    total = cuda_context_total + compute_buffer_total + flash_attn_mb + sync
+    total = min(total, ceiling)
 
     return {
         "cuda_context_mb": round(cuda_context_total, 1),
         "compute_buffer_mb": round(compute_buffer_total, 1),
         "flash_attn_mb": round(flash_attn_mb, 1),
-        "tensor_sync_mb": round(tensor_sync_mb, 1),
+        "tensor_sync_mb": round(sync, 1),
         "total_mb": round(total, 1),
     }
 
