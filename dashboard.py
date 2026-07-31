@@ -385,7 +385,7 @@ def _parse_batch_flags(cmd, default_batch=2048, default_ubatch=512):
             ubatch = int(lub_match.group(1))
         except ValueError:
             pass
-    return batch, ubatch
+    return batch, min(ubatch, batch)
 
 
 def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ctx_size,
@@ -415,7 +415,18 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
     path_lower = (model_name or "").lower()
 
     # Architecture-aware corrections
-    if "-a" in path_lower:
+    # 1. Try explicit MOE_ACTIVE_PARAMS lookup first
+    moe_params = None
+    for key, params in MOE_ACTIVE_PARAMS.items():
+        clean = re.sub(r'[-_.]', '', path_lower)
+        if re.sub(r'[-_.]', '', key) in clean:
+            moe_params = params
+            break
+    if moe_params and model_weight_mb:
+        active_b, total_b = moe_params
+        size_factor = (model_weight_mb * (active_b / total_b)) / base_weight_mb
+        size_factor = max(0.25, min(size_factor, 3.5))
+    elif "-a" in path_lower:
         active_match = re.search(r'a(\d+)b', path_lower)
         total_b_match = re.search(r'(\d+)b', path_lower)
         if active_match and total_b_match and model_weight_mb:
@@ -562,6 +573,21 @@ NEMOTRON_ATTENTION_LAYERS = {
     "nemotron-h-56b": 10,
     "nemotron-5-15b": 4,    # placeholder
     "nemotron-h-8b":  4,
+}
+
+MOE_ACTIVE_PARAMS = {
+    # (active_b, total_b) — active parameters in billions, total in billions
+    "qwen3.6-35b-a3b":  (3, 35),
+    "qwen3.5-35b-a3b":  (3, 35),
+    "qwen3.5-122b-a10b": (10, 122),
+    "qwen3.5-397b-a17b": (17, 397),
+    "qwen3-30b-a3b":    (3, 30),
+    "qwen3-235b-a22b":  (22, 235),
+    "mixtral-8x7b":     (12.9, 46.7),
+    "mixtral-8x22b":    (39, 141),
+    "gemma-4-26b-a4b":  (4, 26),
+    "llama-4-scout":    None,  # unknown active params — fall back to regex
+    "llama-4-maverick": None,
 }
 
 RESET = "\033[0m"

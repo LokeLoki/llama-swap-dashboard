@@ -273,17 +273,17 @@ const ARCH = {
   "qwen3.5-27b":     { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, label:"Qwen3.5 27B", w:{q4_k_m:16500,q5_k_s:19300,q5_k_m:19800,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
   "qwen3.5-9b":      { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, label:"Qwen3.5 9B",  w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
   "qwen3.5-8b":      { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, label:"Qwen3.5 8B",  w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,iq4_xs:4200,f16:16000} },
-  "qwen3.6-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, experts:128, label:"Qwen3.6 35B-A3B", w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
-  "qwen3.5-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, experts:128, label:"Qwen3.5 35B-A3B", w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
-  "qwen3.5-122b-a10b":{layers:64, kv:8, dim:256, kind:"hybrid", eff:16, moe:true, experts:128, label:"Qwen3.5 122B-A10B", w:{q4_k_m:65000,q5_k_m:78000,q6_k:92000,q8_0:120000,f16:230000} },
-  "qwen3.5-397b-a17b":{layers:72, kv:8, dim:256, kind:"hybrid", eff:18, moe:true, experts:256, label:"Qwen3.5 397B-A17B", w:{q4_k_m:180000,q5_k_m:220000,q6_k:260000,q8_0:340000,f16:700000} },
+  "qwen3.6-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, active:3, total:35, experts:128, label:"Qwen3.6 35B-A3B", w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
+  "qwen3.5-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, active:3, total:35, experts:128, label:"Qwen3.5 35B-A3B", w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
+  "qwen3.5-122b-a10b":{layers:64, kv:8, dim:256, kind:"hybrid", eff:16, moe:true, active:10, total:122, experts:128, label:"Qwen3.5 122B-A10B", w:{q4_k_m:65000,q5_k_m:78000,q6_k:92000,q8_0:120000,f16:230000} },
+  "qwen3.5-397b-a17b":{layers:72, kv:8, dim:256, kind:"hybrid", eff:18, moe:true, active:17, total:397, experts:256, label:"Qwen3.5 397B-A17B", w:{q4_k_m:180000,q5_k_m:220000,q6_k:260000,q8_0:340000,f16:700000} },
   "bonsai":          { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, label:"Bonsai 27B (1-bit Qwen3.6)", w:{q1_0:3994,tq1_0:3994,q2_0:7200,tq2_0:7200,q4_k_m:9000,f16:54000} },
   "qwen3-32b": { layers:64, kv:8, dim:128, kind:"dense", label:"Qwen3 32B", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
   "qwen3-14b": { layers:40, kv:8, dim:128, kind:"dense", label:"Qwen3 14B", w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,f16:28000} },
   "qwen3-8b":  { layers:36, kv:8, dim:128, kind:"dense", label:"Qwen3 8B",  w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,f16:16000} },
   "qwen3-4b":  { layers:36, kv:8, dim:128, kind:"dense", label:"Qwen3 4B",  w:{q4_k_m:2500,q5_k_m:3000,q6_k:3500,q8_0:4500,f16:8000} },
-  "qwen3-30b-a3b": { layers:48, kv:4, dim:128, kind:"dense", moe:true, label:"Qwen3 30B-A3B", w:{q4_k_m:17000,q5_k_m:20000,q6_k:24000,q8_0:31000,f16:60000} },
-  "qwen3-235b-a22b":{layers:94, kv:4, dim:128, kind:"dense", moe:true, label:"Qwen3 235B-A22B", w:{q4_k_m:120000,q5_k_m:145000,q6_k:170000,q8_0:220000,f16:440000} },
+  "qwen3-30b-a3b": { layers:48, kv:4, dim:128, kind:"dense", moe:true, active:3, total:30, label:"Qwen3 30B-A3B", w:{q4_k_m:17000,q5_k_m:20000,q6_k:24000,q8_0:31000,f16:60000} },
+  "qwen3-235b-a22b":{layers:94, kv:4, dim:128, kind:"dense", moe:true, active:22, total:235, label:"Qwen3 235B-A22B", w:{q4_k_m:120000,q5_k_m:145000,q6_k:170000,q8_0:220000,f16:440000} },
 
   "qwen2.5-72b": { layers:80, kv:8, dim:128, kind:"dense", label:"Qwen2.5 72B", w:{q4_k_m:40000,q5_k_m:48000,q6_k:56000,q8_0:72000,f16:144000} },
   "qwen2.5-32b": { layers:64, kv:8, dim:128, kind:"dense", label:"Qwen2.5 32B", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,f16:64000} },
@@ -312,7 +312,7 @@ const ARCH = {
   "gemma4-12b": { layers:48, kv:2, dim:512, kind:"dual", label:"Gemma 4 12B",
     geo:{sliding:{n:40,kv:8,dim:256},global:{n:8,kv:2,dim:512,k_eq_v:true},window:1024},
     w:{q4_k_m:7000,q5_k_m:8500,q6_k:10000,q8_0:13000,f16:24000} },
-  "gemma4-26b-a4b":{layers:30,kv:2,dim:512,kind:"dual",moe:true,label:"Gemma 4 26B-A4B",
+  "gemma4-26b-a4b":{layers:30,kv:2,dim:512,kind:"dual",moe:true,active:4,total:26,label:"Gemma 4 26B-A4B",
     geo:{sliding:{n:25,kv:8,dim:256},global:{n:5,kv:2,dim:512,k_eq_v:true},window:1024},
     w:{q4_k_m:14000,q5_k_m:17000,q6_k:20000,q8_0:26000,f16:50000} },
   "gemma4-31b": { layers:60, kv:4, dim:512, kind:"dual", label:"Gemma 4 31B",
@@ -325,8 +325,8 @@ const ARCH = {
   "mistral-7b":    { layers:32, kv:8, dim:128, kind:"dense", label:"Mistral 7B",    w:{q4_k_m:4200,q5_k_m:5000,q6_k:5800,q8_0:7500,f16:14000} },
   "mistral-nemo-2":{ layers:40, kv:8, dim:128, kind:"dense", label:"Mistral Nemo 2", w:{q4_k_m:7200,q5_k_m:8600,q6_k:10000,q8_0:13000,f16:24000} },
   "codestral":     { layers:40, kv:8, dim:128, kind:"dense", label:"Codestral",     w:{q4_k_m:12000,q5_k_m:14500,q6_k:17000,q8_0:22000,f16:42000} },
-  "mixtral-8x7b":  { layers:32, kv:8, dim:128, kind:"dense", moe:true, label:"Mixtral 8×7B",  w:{q4_k_m:26000,q5_k_m:31000,q6_k:36000,q8_0:47000,f16:90000} },
-  "mixtral-8x22b": { layers:56, kv:8, dim:128, kind:"dense", moe:true, label:"Mixtral 8×22B", w:{q4_k_m:80000,q5_k_m:95000,q6_k:110000,q8_0:145000,f16:280000} },
+  "mixtral-8x7b":  { layers:32, kv:8, dim:128, kind:"dense", moe:true, active:12.9, total:46.7, label:"Mixtral 8×7B",  w:{q4_k_m:26000,q5_k_m:31000,q6_k:36000,q8_0:47000,f16:90000} },
+  "mixtral-8x22b": { layers:56, kv:8, dim:128, kind:"dense", moe:true, active:39, total:141, label:"Mixtral 8×22B", w:{q4_k_m:80000,q5_k_m:95000,q6_k:110000,q8_0:145000,f16:280000} },
 
   "phi-4":   { layers:40, kv:10, dim:128, kind:"dense", label:"Phi-4",   w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,f16:28000} },
   "phi-3.5": { layers:32, kv:32, dim:96,  kind:"dense", label:"Phi-3.5", w:{q4_k_m:2200,q5_k_m:2600,q6_k:3100,q8_0:4000,f16:7500} },
@@ -463,6 +463,20 @@ function calcKV(arch, kB, vB, tokens) {
   return (kvLayers * arch.kv * arch.dim * bpe * tokens) / (1024 * 1024);
 }
 
+function refreshWeightQuantOptions(arch) {
+  const sel = $("weightQuant");
+  const current = sel.value;
+  [...sel.options].forEach(opt => {
+    const available = !!(arch.w && arch.w[opt.value]);
+    opt.disabled = !available;
+    opt.textContent = available
+      ? opt.value.toUpperCase()
+      : `${opt.value.toUpperCase()} (n/a)`;
+  });
+  if (arch.w && !arch.w[current]) {
+    sel.value = arch.w.q4_k_m ? "q4_k_m" : Object.keys(arch.w)[0];
+  }
+}
 function osOverheadMb() {
   const profile = $("osProfile").value;
   if (profile === "custom") return +$("osCustom").value;
@@ -482,7 +496,9 @@ function canUseFolderPicker() { return "showDirectoryPicker" in window; }
 function formatSizeGb(bytes) { return (bytes / (1024 ** 3)).toFixed(2); }
 
 function guessArchAndQuant(filename) {
-  const lower = filename.toLowerCase().replace(/\.gguf$/, "");
+  const rawLower = filename.toLowerCase().replace(/\.gguf$/, "");
+  const normalize = s => s.replace(/[-_\s.]/g, "");
+  const lowerNorm = normalize(rawLower);
   const quantMap = [
     [/q8_0|q8\.0/, "q8_0"], [/q6_k/, "q6_k"],
     [/q5_k_m|q5_k\.m/, "q5_k_m"], [/q5_k_s|q5_0/, "q5_k_s"],
@@ -491,16 +507,16 @@ function guessArchAndQuant(filename) {
     [/q1_0|tq1/, "q1_0"], [/f16|fp16/, "f16"], [/bf16/, "bf16"],
   ];
   let quant = null;
-  for (const [re, q] of quantMap) if (re.test(lower)) { quant = q; break; }
+  for (const [re, q] of quantMap) if (re.test(rawLower)) { quant = q; break; }
 
   const archKeys = Object.keys(ARCH).sort((a,b) => b.length - a.length);
   let arch = null;
   for (const k of archKeys) {
-    if (lower.includes(k.replace(/-/g,"")) || lower.includes(k)) { arch = k; break; }
+    if (lowerNorm.includes(normalize(k))) { arch = k; break; }
   }
   if (!arch) {
-    if (/qwen3\.6.*27b|qwen3-6.*27/.test(lower)) arch = "qwen3.6-27b";
-    else if (/bonsai/.test(lower)) arch = "bonsai";
+    if (/qwen3\.6.*27b|qwen3-6.*27/.test(rawLower)) arch = "qwen3.6-27b";
+    else if (/bonsai/.test(rawLower)) arch = "bonsai";
   }
   return { arch, quant };
 }
@@ -531,17 +547,31 @@ function renderModelList() {
   }
   list.style.display = "block";
   $("clearScanBtn").style.display = "inline-block";
-  list.innerHTML = scannedModels
-    .sort((a,b) => b.sizeGb - a.sizeGb)
-    .map((m,i) => `<div class="item" data-idx="${i}">
-      <span class="name" title="${m.name}">${m.name}</span>
-      <span class="size">${m.sizeGb} GB</span></div>`).join("");
-  list.querySelectorAll(".item").forEach(el => {
-    el.addEventListener("click", () => {
+
+  const sorted = [...scannedModels].sort((a,b) => b.sizeGb - a.sizeGb);
+  list.innerHTML = "";
+
+  sorted.forEach((m) => {
+    const row = document.createElement("div");
+    row.className = "item";
+    row.dataset.idx = String(scannedModels.indexOf(m));
+
+    const nameSpan = document.createElement("span");
+    nameSpan.className = "name";
+    nameSpan.title = m.name;
+    nameSpan.textContent = m.name;
+
+    const sizeSpan = document.createElement("span");
+    sizeSpan.className = "size";
+    sizeSpan.textContent = `${m.sizeGb} GB`;
+
+    row.append(nameSpan, sizeSpan);
+    row.addEventListener("click", () => {
       list.querySelectorAll(".item").forEach(x => x.classList.remove("active"));
-      el.classList.add("active");
-      applyModel(scannedModels[+el.dataset.idx]);
+      row.classList.add("active");
+      applyModel(scannedModels[+row.dataset.idx]);
     });
+    list.appendChild(row);
   });
 }
 
@@ -606,12 +636,12 @@ function initScanner() {
   });
 }
 
-function updateCliCommand(key, arch) {
+function updateCliCommand(key, arch, effectiveNgl) {
   const ctx = ctxFromPct(+$("ctx").value);
   const layers = arch.layers;
-  const ngl = Math.min(+$("ngl").value, layers);
+  const ngl = Math.min(effectiveNgl ?? +$("ngl").value, layers);
   const batch = +$("batch").value;
-  const ubatch = +$("ubatch").value;
+  const ubatch = Math.min(+$("ubatch").value, batch);
   const ctk = $("ctk").value;
   const ctv = $("ctv").value;
   const useFa = $("fa").checked;
@@ -634,7 +664,11 @@ function updateCliCommand(key, arch) {
   flags.push(`-ctv ${ctv}`);
   flags.push(`--port ${+$("port").value || 8080}`);
   if (useFa) flags.push(`-fa`);
-  if (useOt) flags.push(`-ot`);
+  if (useOt) {
+    if (arch.moe) {
+      flags.push(`-ot ".*exps.=CPU"`);
+    }
+  }
   if (useMmproj) flags.push(`--mmproj <path-to-mmproj.gguf>`);
   if (useMtp) {
     flags.push(`--spec-type draft-mtp`);
@@ -645,9 +679,9 @@ function updateCliCommand(key, arch) {
     else if (moeMode === "partial" && moeCpuN > 0) flags.push(`--n-cpu-moe ${moeCpuN}`);
   }
 
-  $("cliCmd").textContent = flags.join(" \\\n  ") + "\n";
-  if (useOt) $("cliCmd").textContent += "\n# -ot keeps large tensors on CPU";
-  if (ngpu > 1) $("cliCmd").textContent += "\n# multi-GPU: add -ts … or --split-mode layer";
+  $("cliCmd").textContent = flags.join(" \\\\\\n  ") + "\\n";
+    if (useOt && !arch.moe) $("cliCmd").textContent += "\n# -ot requires a pattern, e.g. -ot \".*attn_q.=CPU\"";
+    if (ngpu > 1) $("cliCmd").textContent += "\n# multi-GPU: add -ts … or --split-mode layer";
 }
 
 function copyCli() {
@@ -750,8 +784,13 @@ function estimate() {
   const hybridDiscount = isHybrid ? 0.75 : 1.0;
   let sizeFactor = Math.max(0.25, Math.min(3.5, (weightMb / 16500) * hybridDiscount));
   if (isMoe) {
-    const m = key.match(/(\d+)b-a(\d+)b/);
-    if (m) sizeFactor = Math.max(0.25, Math.min(3.5, (weightMb * (+m[2]) / (+m[1])) / 16500));
+    if (arch.active && arch.total) {
+      sizeFactor = Math.max(0.25, Math.min(3.5,
+        (weightMb * (arch.active / arch.total)) / 16500));
+    } else {
+      const m = key.match(/(\d+)b-a(\d+)b/);
+      if (m) sizeFactor = Math.max(0.25, Math.min(3.5, (weightMb * (+m[2]) / (+m[1])) / 16500));
+    }
   }
 
   // ── Runtime overhead ────────────────────────────────────────────────
@@ -908,7 +947,7 @@ function estimate() {
   if (+$("ngl").value > layers) $("ngl").value = layers;
   $("nglVal").textContent = `${Math.min(+$("ngl").value, layers)}/${layers}`;
 
-  updateCliCommand(key, arch);
+  updateCliCommand(key, arch, Math.round(offloadRatio * layers));
 }
 
 function bind() {
@@ -921,6 +960,13 @@ function bind() {
       if (id === "ngl") $("nglVal").textContent = $("ngl").value;
       if (id === "batch") $("batchVal").textContent = $("batch").value;
       if (id === "ubatch") $("ubatchVal").textContent = $("ubatch").value;
+      if (id === "batch" || id === "ubatch") {
+        const b = $("batch"), ub = $("ubatch");
+        if (+ub.value > +b.value) {
+          ub.value = b.value;
+          $("ubatchVal").textContent = ub.value;
+        }
+      }
       if (id === "mtpN") $("mtpNVal").textContent = $("mtpN").value;
       if (id === "ngpu") $("ngpuVal").textContent = $("ngpu").value;
       if (id === "port") $("portVal").textContent = $("port").value;
@@ -943,6 +989,7 @@ function bind() {
           if (+$("moeCpuN").value > a.layers) $("moeCpuN").value = a.layers;
           $("moeCpuNVal").textContent = $("moeCpuN").value;
         }
+        refreshWeightQuantOptions(a);
       }
       if (id === "moeOffload") {
         $("moeCpuNRow").style.display = $("moeOffload").value === "partial" ? "grid" : "none";
