@@ -43,6 +43,9 @@
     width: 100%; background: var(--input); border: 1px solid var(--border);
     color: var(--text); border-radius: 6px; padding: 5px 8px; font-size: 0.87rem;
   }
+  select.overridden {
+    color: var(--muted); font-style: italic;
+  }
   .toggles { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 4px; }
   .toggles label { display: flex; align-items: center; gap: 4px; font-size: 0.84rem; cursor: pointer; }
   .result-big { font-size: 2rem; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
@@ -463,6 +466,25 @@ function calcKV(arch, kB, vB, tokens) {
   return (kvLayers * arch.kv * arch.dim * bpe * tokens) / (1024 * 1024);
 }
 
+function refreshWeightOverrideState() {
+  const sel = $("weightQuant");
+  const ov = $("weightOverride");
+  const hasOverride = ov.value.trim() !== "" && parseFloat(ov.value) > 0;
+  sel.classList.toggle("overridden", hasOverride);
+  if (hasOverride) {
+    sel.title = `Overridden to ${ov.value} GB`;
+    // Update displayed option text to show USER
+    [...sel.options].forEach(opt => {
+      opt._origText = opt._origText || opt.textContent;
+      opt.textContent = `${opt._origText} (USER)`;
+    });
+  } else {
+    sel.title = "";
+    [...sel.options].forEach(opt => {
+      if (opt._origText) opt.textContent = opt._origText;
+    });
+  }
+}
 function refreshWeightQuantOptions(arch) {
   const sel = $("weightQuant");
   const current = sel.value;
@@ -526,6 +548,7 @@ function applyModel(model) {
   activeModelFileName = path;
   $("modelPath").value = path;
   $("weightOverride").value = model.sizeGb;
+  refreshWeightOverrideState();
   const guess = guessArchAndQuant(model.name);
   if (guess.arch && ARCH[guess.arch]) {
     $("arch").value = guess.arch;
@@ -612,6 +635,7 @@ function initScanner() {
   $("clearScanBtn").addEventListener("click", () => {
     scannedModels = []; activeModelFileName = null;
     $("modelPath").value = ""; $("weightOverride").value = "";
+    refreshWeightOverrideState();
     renderModelList(); estimate();
   });
   $("browseBtn").addEventListener("click", e => { e.stopPropagation(); $("ggufInput").click(); });
@@ -968,6 +992,7 @@ function bind() {
         }
       }
       if (id === "mtpN") $("mtpNVal").textContent = $("mtpN").value;
+      if (id === "weightOverride") refreshWeightOverrideState();
       if (id === "ngpu") $("ngpuVal").textContent = $("ngpu").value;
       if (id === "port") $("portVal").textContent = $("port").value;
       if (id === "mmprojMb") $("mmprojVal").textContent = (+$("mmprojMb").value/1024).toFixed(2)+" GB";
@@ -990,6 +1015,7 @@ function bind() {
           $("moeCpuNVal").textContent = $("moeCpuN").value;
         }
         refreshWeightQuantOptions(a);
+        refreshWeightOverrideState();
       }
       if (id === "moeOffload") {
         $("moeCpuNRow").style.display = $("moeOffload").value === "partial" ? "grid" : "none";
@@ -1002,6 +1028,7 @@ function bind() {
 
 populate();
 bind();
+refreshWeightOverrideState();
 estimate();
 initScanner();
 </script>
