@@ -272,11 +272,11 @@
 <script>
 /* ── Architecture table (mirrors dashboard) ── */
 const ARCH = {
-  "qwen3.6-27b":     { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, label:"Qwen3.6 27B", w:{q4_k_m:16500,q5_k_s:19300,q5_k_m:19800,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
+  "qwen3.6-27b":     { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, label:"Qwen3.6 27B", w:{q4_k_m:16500,q4_k_xl:18000,q5_k_s:19300,q5_k_m:19800,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
   "qwen3.5-27b":     { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, label:"Qwen3.5 27B", w:{q4_k_m:16500,q5_k_s:19300,q5_k_m:19800,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
-  "qwen3.5-9b":      { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, label:"Qwen3.5 9B",  w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
+  "qwen3.5-9b":     { layers:32, kv:4, dim:256, kind:"hybrid", eff:8, label:"Qwen3.5 9B",  w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
   "qwen3.5-8b":      { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, label:"Qwen3.5 8B",  w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,iq4_xs:4200,f16:16000} },
-  "qwen3.6-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, active:3, total:35, experts:128, label:"Qwen3.6 35B-A3B", w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
+  "qwen3.6-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, active:3, total:35, experts:128, label:"Qwen3.6 35B-A3B", w:{q4_k_m:20000,q4_k_xl:22940,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
   "qwen3.5-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, active:3, total:35, experts:128, label:"Qwen3.5 35B-A3B", w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
   "qwen3.5-122b-a10b":{layers:64, kv:8, dim:256, kind:"hybrid", eff:16, moe:true, active:10, total:122, experts:128, label:"Qwen3.5 122B-A10B", w:{q4_k_m:65000,q5_k_m:78000,q6_k:92000,q8_0:120000,f16:230000} },
   "qwen3.5-397b-a17b":{layers:72, kv:8, dim:256, kind:"hybrid", eff:18, moe:true, active:17, total:397, experts:256, label:"Qwen3.5 397B-A17B", w:{q4_k_m:180000,q5_k_m:220000,q6_k:260000,q8_0:340000,f16:700000} },
@@ -347,7 +347,7 @@ const CACHE_OPTS  = ["f16", "q8_0", "q4_0"];   // restricted as requested
 const WEIGHT_OPTS = [
   "q1_0","tq1_0","q2_0","tq2_0","q2_k",
   "q3_k_s","q3_k_m",
-  "iq4_xs","q4_0","q4_k_s","q4_k_m",
+  "iq4_xs", "q4_0", "q4_k_s", "q4_k_m", "q4_k_xl",
   "q5_k_s","q5_k_m",
   "q6_k","q8_0","f16","bf16"
 ];
