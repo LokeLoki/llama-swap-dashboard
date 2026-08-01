@@ -219,9 +219,12 @@ MODEL_ARCHITECTURES = {
     "gemma2-2b":     (26, 4, 256),
     # Bonsai 27B (binary/ternary quantization of Qwen3.6-27B — architecture unchanged)
     "bonsai":        (64, 4, 256),
-    # DeepSeek
+    # DeepSeek V3 / R1 (MLA attention)
     "deepseek-v3":   (61, 128, 128),
     "deepseek-r1":   (61, 128, 128),
+    # DeepSeek V4 (hybrid CSA + HCA attention, MQA — KV cache compressed at runtime)
+    "deepseek-v4-flash": (43, 1, 512),
+    "deepseek-v4-pro":   (43, 1, 512),
     # Laguna family (GQA)
     "laguna-s-2.1":      (48, 8, 128),
     "laguna-xs-2.1":     (40, 8, 128),
