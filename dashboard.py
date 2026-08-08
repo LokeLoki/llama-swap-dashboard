@@ -109,7 +109,7 @@ class ModelIdentity:
 
 DEFAULT_HOST = "http://localhost:8080"
 DEFAULT_REFRESH = 1
-DEFAULT_AUX_PORT = "11434"
+DEFAULT_AUX_PORT = "8089"
 CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboard.conf")
 
 # Refresh intervals (in cycles) for different data sources.
@@ -119,8 +119,7 @@ CONFIG_FILE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "dashboar
 REFRESH_GPU = 1         # GPU-smi query (local, ~10ms)
 REFRESH_METRICS = 1     # /api/performance + /api/metrics (network)
 REFRESH_RUNNING = 3     # /running endpoint (network)
-REFRESH_OLLAMA = 5      # Ollama /api/ps (network)
-REFRESH_OLLAMA_ACTIVE = 3  # GPU-smi compute/apps (local, ~5ms)
+REFRESH_AUX = 5         # second llama-server process scan (local wmic)
 
 # Quantization pattern regex — matches common GGUF quant labels
 # Handles: Q4_K_M, Q5_K_XL, Q6_K, IQ4_XS, F16, BF16, etc.
@@ -719,7 +718,7 @@ def save_config(host, config_yaml="", aux_port=DEFAULT_AUX_PORT):
             f.write("# host            - llama-swap API URL (required)\n")
             f.write("# config_yaml     - path to llama-swap config.yaml (optional, for model name + quant parsing)\n")
             f.write("#                   Leave blank to skip quant parsing\n")
-            f.write("# aux_port        - Ollama auxiliary model port (default: 11434)\n")
+            f.write("# aux_port        - second llama-server port for auxiliary model (default: 8089)\n")
             f.write("\n")
             f.write(f"host={host}\n")
             f.write(f"config_yaml={config_yaml}\n")
@@ -1201,59 +1200,52 @@ def get_llama_swap_stats(api_url):
     return None
 
 
-def get_auxiliary_model(aux_port=DEFAULT_AUX_PORT):
-    """Get auxiliary model info from Ollama /api/ps and /api/generate (timing probe)."""
-    aux_host = f"http://127.0.0.1:{aux_port}"
-    try:
-        # Get loaded model
-        req = urllib.request.Request(f"{aux_host}/api/ps")
-        with urllib.request.urlopen(req, timeout=3) as resp:
-            data = json.loads(resp.read())
-        models = data.get("models", [])
-        if not models:
-            return None
-        m = models[0]
+def get_aux_llama_server(aux_port):
+    """Find the second llama-server listening on aux_port.
 
-        return AuxiliaryModel(
-            name=m.get("name", "—"),
-            size_vram_mb=m.get("size_vram", 0) / (1024 * 1024),
-            context_length=m.get("context_length", 0),
-            decode_tps=0,  # No probe — just report loaded state
-        )
+    Reads the live PROCESS cmdline (detect_local_servers), so it works no
+    matter where the aux model's config lives — the running llama-server is
+    the source of truth. Matches by port. Returns a parsed model dict (same
+    shape as fetch_running_models) or None.
+    """
+    servers = detect_local_servers()
+    if not servers:
+        return None
+    target = f":{aux_port}"
+    for s in servers:
+        if s.get("host", "").endswith(target):
+            s["aux_port"] = aux_port
+            return s
+    return None
+
+
+def get_aux_llama_vram(aux_dict, gpus):
+    """Aux VRAM via the full calibrated formula (shared with main model).
+
+    Cached per model path. Returns total MB or None (line then shows '—').
+    """
+    if not aux_dict:
+        return None
+    name = aux_dict.get("model_path")
+    cache = getattr(get_aux_llama_vram, "_cache", None)
+    if cache and cache["name"] == name:
+        return cache["total_mb"]
+    info = get_main_model_vram([aux_dict], [], gpus=gpus)
+    if info is None or not info.total_mb:
+        return None
+    get_aux_llama_vram._cache = {"name": name, "total_mb": info.total_mb}
+    return info.total_mb
+
+
+def get_aux_llama_active(aux_port):
+    """True while the aux llama-server has a generation slot processing."""
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{aux_port}/slots")
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            slots = json.loads(resp.read())
+        if isinstance(slots, list):
+            return any(s.get("is_processing", False) for s in slots)
     except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
-        return None  # Ollama /api/ps unavailable
-
-
-def get_ollama_active_nv():
-    """Check if Ollama process is actively using a GPU via nvidia-smi."""
-    try:
-        result = subprocess.run(
-            ["nvidia-smi", "--query-compute-apps=name", "--format=csv,noheader"],
-            capture_output=True, text=True, timeout=2,
-        )
-        if result.returncode == 0:
-            for line in result.stdout.strip().split("\n"):
-                if "ollama" in line.lower():
-                    return True
-    except (subprocess.SubprocessError, OSError):
-        pass
-    return False
-
-
-def get_ollama_active_amd():
-    """Check if Ollama process is actively using a GPU via amd-smi."""
-    try:
-        result = subprocess.run(
-            ["amd-smi", "process", "--json"],
-            capture_output=True, text=True, timeout=2,
-        )
-        if result.returncode == 0:
-            data = json.loads(result.stdout)
-            for gd in data.get("gpu_data", []):
-                for proc in gd.get("processes", []):
-                    if "ollama" in proc.get("name", "").lower():
-                        return True
-    except (subprocess.SubprocessError, json.JSONDecodeError, OSError):
         pass
     return False
 
@@ -1328,15 +1320,6 @@ def get_inference_gpu_indices(min_mem_mb=800):
             pass
 
     return active
-
-
-def get_ollama_active():
-    """Router: check if Ollama is actively using the GPU."""
-    if BACKEND == "mixed":
-        return get_ollama_active_amd() or get_ollama_active_nv()
-    elif BACKEND == "amd":
-        return get_ollama_active_amd()
-    return get_ollama_active_nv()
 
 
 def fetch_running_models(host):
@@ -2101,17 +2084,6 @@ def auto_detect_model_traits(model_path, cmd_str, n_layers=0):
     }
 
 
-def get_aux_state(aux_info, aux_port, ollama_active=None):
-    """Detect if the auxiliary model is currently active.
-    Uses cached ollama_active state to avoid repeated API calls.
-    Returns 'active' or 'idle'."""
-    if not aux_info:
-        return "idle"
-    if ollama_active is True:
-        return "active"
-    return "idle"
-
-
 def get_main_model_vram(running_models, valid_metrics, gpus=None):
     """Calculate main model VRAM: weights + mmproj + draft + KV cache + runtime overhead.
     Runtime overhead: CUDA context, compute buffers, flash attn reservation, tensor sync.
@@ -2443,60 +2415,6 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     )
 
 
-def get_aux_vram(aux_info, aux_port):
-    """Calculate auxiliary model VRAM: weights + KV cache estimate.
-    Ollama exposes model details via /api/show. We parse architecture params
-    directly from the response instead of using the lookup table.
-    Returns total_vram_mb or falls back to size_vram_mb if details unavailable.
-    Caches result to avoid repeated API calls."""
-    if not aux_info:
-        return None
-    weight_mb = aux_info.size_vram_mb
-    if weight_mb == 0:
-        return None
-    # Check cache
-    cache = getattr(get_aux_vram, "_cache", None)
-    if cache and cache["name"] == aux_info.name:
-        return cache["total_mb"]
-    # Try to get architecture from Ollama /api/show
-    aux_host = f"http://127.0.0.1:{aux_port}"
-    try:
-        show_data = json.dumps({"name": aux_info.name}).encode()
-        show_req = urllib.request.Request(f"{aux_host}/api/show", data=show_data, method="POST")
-        with urllib.request.urlopen(show_req, timeout=2) as resp:
-            show = json.loads(resp.read())
-        info = show.get("model_info", {})
-        # Try multiple architecture keys (qwen35, llama, gemma2, qwen2)
-        arch_keys = ["qwen35", "llama", "gemma2", "qwen2"]
-        layers, kv_heads, head_dim = 0, 0, 0
-        for arch in arch_keys:
-            l = info.get(f"{arch}.block_count")
-            k = info.get(f"{arch}.attention.head_count_kv")
-            h = info.get(f"{arch}.attention.key_length")
-            if l and k and h:
-                layers, kv_heads, head_dim = l, k, h
-                break
-        if layers and kv_heads and head_dim:
-            # Ollama KV cache defaults to q8_0; user can set OLLAMA_KV_CACHE_TYPE
-            cache_bytes = 1.0
-            ctx = aux_info.context_length
-            # DeepSeek/Kimi/Mistral Large 3 use MLA — flat ~70 KB/token
-            aux_is_mla = ("deepseek" in aux_info.name.lower() or "kimi" in aux_info.name.lower() or
-                          "mistral-large-3" in aux_info.name.lower() or "mistrallarge3" in aux_info.name.lower()) and \
-                         "distill" not in aux_info.name.lower()
-            if aux_is_mla:
-                cache_mb = 70.0 * ctx / (1024)
-            else:
-                cache_mb = calc_kv_cache_mb(layers, kv_heads, head_dim, cache_bytes, ctx)
-            total = weight_mb + cache_mb
-            get_aux_vram._cache = {"name": aux_info.name, "total_mb": total}
-            return total
-    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, OSError, TimeoutError):
-        pass  # Ollama API or file read failed
-    # Fallback: just return weight size
-    return weight_mb
-
-
 def fetch_prometheus_metrics(proxy_url):
     """Fetch aggregate acceptance rate from upstream llama.cpp /metrics endpoint.
     Returns acceptance rate as a float (0.0-1.0) or None."""
@@ -2520,8 +2438,15 @@ def fetch_prometheus_metrics(proxy_url):
 
 def fetch_plain_server_stats(host):
     """Best-effort live stats from a plain llama-server /metrics endpoint.
-    Returns dict with decode_tps, prompt_tps, or empty dict on failure.
-    Silent failure — never breaks the dashboard.
+
+    Supports both metric styles emitted by llama.cpp:
+      - newer counters: llamacpp:tokens_predicted_total /
+        tokens_predicted_seconds_total (diffed across polls → interval rate)
+      - older gauges:   llamacpp:predicted_tokens_seconds /
+        prompt_tokens_seconds (used as-is)
+    First poll of a host only establishes the counter baseline (needs two
+    samples for a rate). Returns dict with decode_tps, prompt_tps, or empty
+    dict on failure. Silent failure — never breaks the dashboard.
     """
     try:
         url = f"{host.rstrip('/')}/metrics"
@@ -2530,21 +2455,80 @@ def fetch_plain_server_stats(host):
             text = resp.read().decode("utf-8", errors="replace")
 
         stats = {}
+        gauge_prompt = gauge_decode = None
+        c_pt = c_ps = c_dt = c_ds = None  # counter pairs: (tokens, seconds)
         for line in text.splitlines():
             if line.startswith("llamacpp:prompt_tokens_seconds"):
                 parts = line.split()
                 if len(parts) >= 2:
                     try:
-                        stats["prompt_tps"] = float(parts[-1])
+                        gauge_prompt = float(parts[-1])
                     except ValueError:
                         pass
             elif line.startswith("llamacpp:predicted_tokens_seconds"):
                 parts = line.split()
                 if len(parts) >= 2:
                     try:
-                        stats["decode_tps"] = float(parts[-1])
+                        gauge_decode = float(parts[-1])
                     except ValueError:
                         pass
+            elif line.startswith("llamacpp:prompt_tokens_total"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    try:
+                        c_pt = float(parts[-1])
+                    except ValueError:
+                        pass
+            elif line.startswith("llamacpp:prompt_seconds_total"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    try:
+                        c_ps = float(parts[-1])
+                    except ValueError:
+                        pass
+            elif line.startswith("llamacpp:tokens_predicted_total"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    try:
+                        c_dt = float(parts[-1])
+                    except ValueError:
+                        pass
+            elif line.startswith("llamacpp:tokens_predicted_seconds_total"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    try:
+                        c_ds = float(parts[-1])
+                    except ValueError:
+                        pass
+
+        # Old gauge-style rates win when present
+        if gauge_prompt is not None:
+            stats["prompt_tps"] = gauge_prompt
+        if gauge_decode is not None:
+            stats["decode_tps"] = gauge_decode
+
+        # Counter-style: diff against the previous sample for an interval rate
+        def _rate(cur_tok, cur_sec, prev_tok, prev_sec):
+            if prev_tok is None or prev_sec is None:
+                return None
+            dt = cur_tok - prev_tok
+            ds = cur_sec - prev_sec
+            if dt <= 0 or ds <= 0:
+                return None  # idle between polls (or clock glitch)
+            return dt / ds
+
+        cache = getattr(fetch_plain_server_stats, "_cache", {})
+        prev = cache.get(url)
+        if c_pt is not None and c_ps is not None and "prompt_tps" not in stats:
+            r = _rate(c_pt, c_ps, (prev or {}).get("pt"), (prev or {}).get("ps"))
+            if r is not None:
+                stats["prompt_tps"] = r
+        if c_dt is not None and c_ds is not None and "decode_tps" not in stats:
+            r = _rate(c_dt, c_ds, (prev or {}).get("dt"), (prev or {}).get("ds"))
+            if r is not None:
+                stats["decode_tps"] = r
+        cache[url] = {"pt": c_pt, "ps": c_ps, "dt": c_dt, "ds": c_ds}
+        fetch_plain_server_stats._cache = cache
         return stats
     except Exception:
         return {}
@@ -3209,7 +3193,7 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sy
     return lines
 
 
-def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, session_totals, identity=None, host=None, aux_port=None, running_models=None, num_prompts=3, spinner_frame=0, ollama_active=False):
+def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_model, session_totals, identity=None, host=None, aux_port=None, running_models=None, num_prompts=3, spinner_frame=0):
     """Render the dashboard."""
     sys.stdout.write("\033[H\033[0J")
     now = time.strftime("%H:%M:%S")
@@ -3362,17 +3346,18 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_info, s
             f"fa:{main_vram_info.flash_attn_mb:.0f} "
             f"sync:{main_vram_info.tensor_sync_mb:.0f}{DIM}){RESET}"
         )
-    if aux_info:
-        aux_name = aux_info.name
-        aux_short = aux_name.split(":")[0]
-        aux_total_mb = get_aux_vram(aux_info, aux_port)
-        aux_tps = aux_info.decode_tps
-        aux_vram_str = f"{aux_total_mb / 1024:.1f} GB"
-        aux_state = get_aux_state(aux_info, aux_port, ollama_active)
-        aux_active = ollama_active
-        lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", aux_vram_str, active=aux_active, is_aux=True, spinner_frame=spinner_frame))
+    if aux_model:
+        aux_short = short_model_name(aux_model.get("model_path") or aux_model.get("model_id") or "")
+        aux_total_mb = get_aux_llama_vram(aux_model, gpus)
+        aux_tps = fetch_plain_server_stats(f"http://127.0.0.1:{aux_port}").get("decode_tps")
+        aux_active = get_aux_llama_active(aux_port)
+        aux_vram_str = f"{aux_total_mb / 1024:.1f} GB" if aux_total_mb else "—"
+        aux_line = aux_vram_str
+        if aux_tps:
+            aux_line += f" · {aux_tps:.0f} t/s"
+        lines.append(_format_metric_line(f"Aux: {aux_short} ({aux_port})", aux_line, active=aux_active, is_aux=True, spinner_frame=spinner_frame))
     else:
-        lines.append(_format_metric_line(f"Ollama Aux ({aux_port})", None, active=False, is_aux=True, spinner_frame=spinner_frame))
+        lines.append(_format_metric_line("Aux: None", None, active=False, is_aux=True, spinner_frame=spinner_frame))
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
     lines.append("")
 
@@ -3429,11 +3414,10 @@ def main():
     num_prompts = 3  # Default: show last 3 prompts
     chart_metrics = []  # Metrics used for the chart (resettable via Ctrl+R)
     spinner_frame = 0  # Animation frame for aux indicator
-    ollama_active = False  # Cached Ollama active state
     fit_mode = False  # Toggle for full-screen VRAM fit calculator
     gpus = []
     sys_info = {}
-    aux_info = None
+    aux_model = None
     running_models = None
     metrics = []
 
@@ -3477,14 +3461,10 @@ def main():
                         for rm in running_models:
                             rm["_plain_mode"] = True
     
-            # Ollama aux — every REFRESH_OLLAMA cycles
-            if loop_frame % REFRESH_OLLAMA == 0:
-                aux_info = get_auxiliary_model(aux_port)
-    
-            # Ollama active check — every REFRESH_OLLAMA_ACTIVE cycles (local)
-            if loop_frame % REFRESH_OLLAMA_ACTIVE == 0:
-                ollama_active = get_ollama_active()
-    
+            # Aux llama-server — every REFRESH_AUX cycles (local process scan)
+            if loop_frame % REFRESH_AUX == 0:
+                aux_model = get_aux_llama_server(aux_port)
+
             valid = filter_valid(metrics)
     
             # Detect new metrics since last render — timestamp-based
@@ -3525,7 +3505,7 @@ def main():
                 sys.stdout.write("\n".join(fit_lines))
                 sys.stdout.flush()
             else:
-                render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
+                render(gpus, sys_info, buckets, valid, refresh, aux_model, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame)
 
             # Increment spinner frame for next cycle
             spinner_frame += 1
@@ -3565,7 +3545,7 @@ def main():
                         sys.stdout.write("\n".join(fit_lines))
                         sys.stdout.flush()
                     else:
-                        render(gpus, sys_info, buckets, valid, refresh, aux_info, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame, ollama_active=ollama_active)
+                        render(gpus, sys_info, buckets, valid, refresh, aux_model, session_totals, identity, host=host, aux_port=aux_port, running_models=running_models, num_prompts=num_prompts, spinner_frame=spinner_frame)
                     spinner_frame += 1
                     break
                 time.sleep(0.012)
