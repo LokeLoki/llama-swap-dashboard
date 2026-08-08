@@ -16,6 +16,7 @@ Options:
 import dataclasses
 import glob
 import json
+import math
 import os
 import re
 import shutil
@@ -355,6 +356,16 @@ GEMMA4_DUAL_GEOMETRY = {
 # Qwen 3.5/3.6 hybrid attention: 3:1 DeltaNet:GatedAttn ratio.
 # Only 25% of layers carry KV cache (DeltaNet is linear attention, no KV).
 
+# DeepSeek-V4-Flash hybrid CSA/HCA attention — shared K=V, ratio-compressed history.
+# Verified against deepseek-ai/DeepSeek-V4-Flash config.json (2026-08):
+# 43 layers, head_dim 512, sliding window 128, 21 CSA (ratio 4) + 20 HCA (ratio 128),
+# index_head_dim 128. KV is NOT MLA — the flat MLA formula overestimates ~10x at 128k,
+# so it gets its own branch in get_main_model_vram (mirrors fitcalculator dshybrid path).
+DS4_DSHYBRID_GEOMETRY = {
+    "layers": 43, "head_dim": 512, "sliding": 128,
+    "n_csa": 21, "n_hca": 20, "csa_ratio": 4, "hca_ratio": 128, "idx_dim": 128,
+}
+
 
 def _parse_batch_flags(cmd, default_batch=2048, default_ubatch=512):
     """Parse -b/--batch-size and -ub/--ubatch-size from command string.
@@ -455,7 +466,8 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
     # ──────────────────────────────────────────────────────────────
     # Saturating ubatch contribution (realistic up to 8k)
     def _ubatch_factor(ub):
-        return 65.0 + 0.55 * min(ub, 2048) + 0.18 * max(0.0, ub - 2048)
+        # Lower base + softer ubatch scaling (planning used 65/0.55/0.18)
+        return 40.0 + 0.40 * min(ub, 2048) + 0.12 * max(0.0, ub - 2048)
 
     # Universal multi-GPU compute scale — safe for all backends.
     # Diminishing returns per GPU (safe up to 8). Single-GPU returns 1.0.
@@ -471,8 +483,6 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
     if backend in ("vulkan", "mixed"):
         cuda_context_total = 35.0 * num_active_gpus
         compute_per_gpu = (28.0 + ubatch_size * 0.35) * size_factor
-        if not flash_attn_enabled:
-            compute_per_gpu += 20.0 * size_factor
         flash_attn_mb = 0.0
         if not flash_attn_enabled:
             if ctx_size > 32768:
@@ -484,11 +494,11 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
         sync = (45.0 if backend == "mixed" else 18.0) * size_factor * num_active_gpus if num_active_gpus > 1 else 0.0
         ceiling = 0.12 * (model_weight_mb or 16000.0) + 220.0
         compute_buffer_total = compute_per_gpu * _multi_gpu_compute_scale(num_active_gpus)
+        if not flash_attn_enabled:
+            compute_buffer_total += 20.0 * size_factor * num_active_gpus
     elif backend in ("rocm", "amd"):
         cuda_context_total = 90.0 * num_active_gpus
         compute_per_gpu = (50.0 + ubatch_size * 0.55) * size_factor
-        if not flash_attn_enabled:
-            compute_per_gpu += 30.0 * size_factor
         flash_attn_mb = 0.0
         if not flash_attn_enabled:
             if ctx_size > 16384:
@@ -498,15 +508,15 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
         sync = 30.0 * size_factor * num_active_gpus if num_active_gpus > 1 else 0.0
         ceiling = 0.18 * (model_weight_mb or 16000.0) + 320.0
         compute_buffer_total = compute_per_gpu * _multi_gpu_compute_scale(num_active_gpus)
+        if not flash_attn_enabled:
+            compute_buffer_total += 30.0 * size_factor * num_active_gpus
     else:
         # CUDA
         # ── Multi-GPU aware (audited July 2026) ──────────────────────────────
         # Primary GPU pays the main context cost; secondary GPUs pay lighter auxiliary cost.
-        cuda_context_total = 220.0 + 90.0 * (num_active_gpus - 1)
+        cuda_context_total = 140.0 + 60.0 * (num_active_gpus - 1)
 
         compute_base = _ubatch_factor(ubatch_size) * size_factor
-        if not flash_attn_enabled:
-            compute_base += 40.0 * size_factor
         flash_attn_mb = 0.0
         if not flash_attn_enabled:
             if ctx_size > 8192:
@@ -519,9 +529,11 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
         ceiling = 0.25 * (model_weight_mb or 16000.0) + 480.0
 
         compute_buffer_total = compute_base * _multi_gpu_compute_scale(num_active_gpus)
+        if not flash_attn_enabled:
+            compute_buffer_total += 40.0 * size_factor * num_active_gpus
 
-    # Long-context compute scaling (previous battle-test fix)
-    ctx_scale = 1.0 + max(0.0, (ctx_size - 65536) / 180000.0) * 1.65
+    # Long-context compute scaling (planning used *1.65)
+    ctx_scale = 1.0 + max(0.0, (ctx_size - 65536) / 180000.0) * 0.85
     compute_buffer_total *= ctx_scale
 
     # ── Multi-GPU overhaul ──────────────────────────────────────────────
@@ -542,6 +554,12 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
         sync = sync_base * size_factor * num_active_gpus * (1.0 + min(0.55, ctx_size / 180000.0))
 
     total = cuda_context_total + compute_buffer_total + flash_attn_mb + sync
+    # Calibrated CUDA floor (mirrored from fitcalculator.html, 2026-08).
+    # Real llama.cpp fixed ctx+compute overhead is ~1.4 GB on a 35B-A3B@65k;
+    # the formula bottoms out far lower. Base scales with GPU count so the
+    # multi-GPU overhead spread isn't flattened on small models.
+    if backend == "cuda":
+        total = max(total, 1330.0 + 250.0 * (num_active_gpus - 1))
     total = min(total, ceiling)
 
     return {
@@ -584,6 +602,7 @@ MOE_ACTIVE_PARAMS = {
     "qwen3.5-35b-a3b":  (3, 35),
     "qwen3.5-122b-a10b": (10, 122),
     "qwen3.5-397b-a17b": (17, 397),
+    "deepseek-v4-flash": (13, 284),
     "qwen3-30b-a3b":    (3, 30),
     "qwen3-235b-a22b":  (22, 235),
     "mixtral-8x7b":     (12.9, 46.7),
@@ -2043,7 +2062,7 @@ def auto_detect_model_traits(model_path, cmd_str, n_layers=0):
     if not is_moe:
         is_moe = any(k in name for k in (
             "qwen3.6-35b", "qwen3.6-122b", "qwen3.5-35b", "qwen3.5-122b",
-            "qwen3.5-397b", "gemma3.6",
+            "qwen3.5-397b", "gemma3.6", "deepseek-v4-flash",
         ))
     # Tertiary: match against known MoE keys in MODEL_ARCHITECTURES
     if not is_moe:
@@ -2054,8 +2073,9 @@ def auto_detect_model_traits(model_path, cmd_str, n_layers=0):
                 break
 
     # 2. Hybrid detection — model name + existing architecture tables
+    #    (dshybrid = DeepSeek-V4-Flash CSA/HCA counts as hybrid for residual/discounts)
     is_hybrid = (
-        any(k in name for k in ("qwen3.5", "qwen3.6", "qwen3-5", "qwen3-6", "bonsai", "ornith"))
+        any(k in name for k in ("qwen3.5", "qwen3.6", "qwen3-5", "qwen3-6", "bonsai", "ornith", "deepseek-v4-flash"))
         or name in QWEN_HYBRID_LAYERS
     )
 
@@ -2129,10 +2149,12 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     # Mistral Large 3 note: Uses MLA, same family as DeepSeek V3. KV is a low-rank latent,
     # not full head_dim x kv_heads per layer.
     path_lower = active["model_path"].lower()
+    # DeepSeek-V4-Flash is hybrid CSA/HCA (shared K=V), NOT MLA — flag before the MLA branch.
+    is_dshybrid = "deepseek-v4-flash" in path_lower
     # MLA (Multi-head Latent Attention) detection — explicit family names.
     # MLA models use compressed latent KV cache; standard formula wildly overestimates.
     # Distill models (e.g. DeepSeek-R1-Distill-Qwen) are standard GQA, not MLA.
-    is_mla = any(k in path_lower for k in (
+    is_mla = (not is_dshybrid) and any(k in path_lower for k in (
         "deepseek-v3", "deepseek-r1", "deepseek-v3.2", "deepseek-v4",
         "kimi-k2", "kimi-k2.5",
         "mistral-large-3", "mistrallarge3", "mistral-large3",
@@ -2159,6 +2181,10 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
             if clean_key in clean_path:
                 effective_layers = el
                 break
+    # DeepSeek-V4-Flash dshybrid: mirror fitcalculator's 25%-of-layers KV fallback
+    # so the fixed recurrent-state (delta) add-on below matches the calculator.
+    if is_dshybrid and effective_layers is None:
+        effective_layers = max(1, round(layers * 0.25))
     # Llama 4: full layers (no reduction) — iRoPE/chunked attention does not remove KV from layers.
     # Mistral Large 3: handled earlier by MLA branch, never reaches here.
     # Gemma 4: dual-geometry — sliding and global layers have separate KV specs
@@ -2198,7 +2224,24 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         active.get("model_quant"),
     )
     # Calculate reserved KV cache (full --ctx-size budget)
-    if is_mla:
+    if is_dshybrid:
+        # DeepSeek-V4-Flash: all layers keep a raw sliding window; history is
+        # ratio-compressed. Shared K=V → bpe = (k+v)/2. Mirrors fitcalculator calcKV.
+        g = DS4_DSHYBRID_GEOMETRY
+        if isinstance(cache_bytes, (tuple, list)) and len(cache_bytes) == 2:
+            bpe = (float(cache_bytes[0]) + float(cache_bytes[1])) / 2.0
+        else:
+            bpe = float(cache_bytes)
+        slide = g["sliding"]
+        swa_mb = g["layers"] * min(ctx_size, slide) * g["head_dim"] * bpe
+        hist = max(0, ctx_size - slide)
+        csa_e = math.ceil(hist / g["csa_ratio"])
+        csa_mb = g["n_csa"] * csa_e * g["head_dim"] * bpe          # CSA (ratio 4)
+        idx_mb = g["n_csa"] * csa_e * g["idx_dim"] * bpe           # indexer on CSA layers
+        hca_e = math.ceil(hist / g["hca_ratio"])
+        hca_mb = g["n_hca"] * hca_e * g["head_dim"] * bpe          # HCA (ratio 128)
+        cache_mb = (swa_mb + csa_mb + idx_mb + hca_mb) / (1024 * 1024)
+    elif is_mla:
         mla_base_mb = 70.0 * ctx_size / (1024)
         # cache_bytes is now (k, v) tuple; use average for MLA scaling
         if isinstance(cache_bytes, (tuple, list)) and len(cache_bytes) == 2:
@@ -2275,8 +2318,9 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
 
     # MoE expert offload: --cpu-moe or --n-cpu-moe N
     if is_moe and expert_offload_ratio > 0.0:
-        # ~83% of MoE weight mass is offloadable experts (calibrated)
-        expert_frac = 0.855
+        # ~83% of MoE weight mass is offloadable experts (calibrated);
+        # DeepSeek-V4-Flash routed-expert share is ~98.2% (256 experts of ~284B).
+        expert_frac = 0.98 if is_dshybrid else 0.855
         weight_mb = weight_mb * (1.0 - expert_frac * expert_offload_ratio)
 
     per_layer_mb = (weight_mb / layers) if layers and layers > 0 else 0
@@ -2348,10 +2392,11 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     fa_match = re.search(r'(?:-fa|--flash-attn)(?:\s|$|--)', cmd_str)
     flash_attn_on = bool(fa_match)
 
+    backend = detect_llama_backend(active.get("cmd", ""))
     overhead = estimate_runtime_overhead(
         gpus, batch_size, ubatch_size, num_active_gpus, ctx_size,
         weight_mb, active["model_path"],
-        backend=detect_llama_backend(active.get("cmd", "")),
+        backend=backend,
         flash_attn_enabled=flash_attn_on,
     )
     # Scale runtime overhead down when offload is heavy (compute buffers shrink).
@@ -2373,6 +2418,10 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         for key in ("cuda_context_mb", "compute_buffer_mb", "flash_attn_mb", "tensor_sync_mb"):
             overhead[key] *= 0.95
     overhead["total_mb"] = sum(overhead[k] for k in ("cuda_context_mb", "compute_buffer_mb", "flash_attn_mb", "tensor_sync_mb"))
+    # Re-apply the calibrated CUDA floor — it lives on the total only, and the
+    # rebuild from components above would drop it (mirrors fitcalculator.html).
+    if backend == "cuda":
+        overhead["total_mb"] = max(overhead["total_mb"], 1330.0 + 250.0 * (num_active_gpus - 1))
 
     total_vram_mb = static_mb + overhead["total_mb"]
     return MainModelVram(
