@@ -9,61 +9,103 @@
     --bg: #0d1117; --panel: #161b22; --border: #30363d;
     --text: #e6edf3; --muted: #8b949e; --accent: #3fb950;
     --accent2: #58a6ff; --warn: #d29922; --danger: #f85149; --input: #21262d;
+    --row-h: 36px;
   }
   * { box-sizing: border-box; }
   body {
-    margin: 0; padding: 14px 18px 36px;
+    margin: 0; padding: 16px 16px 48px;
     font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
-    background: var(--bg); color: var(--text); line-height: 1.4;
+    background: var(--bg); color: var(--text); line-height: 1.45;
   }
-  h1 { font-size: 1.25rem; margin: 0 0 2px; }
-  .sub { color: var(--muted); font-size: 0.84rem; margin-bottom: 12px; }
-  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; max-width: 1140px; }
-  @media (max-width: 920px) { .grid { grid-template-columns: 1fr; } }
+  h1 { font-size: 1.3rem; margin: 0 0 2px; font-weight: 650; }
+  .sub { color: var(--muted); font-size: 0.84rem; margin-bottom: 14px; }
+  .grid {
+    display: grid; grid-template-columns: minmax(0, 1.05fr) minmax(0, 0.95fr);
+    gap: 14px; max-width: 1180px; align-items: start;
+  }
+  @media (max-width: 960px) { .grid { grid-template-columns: 1fr; } }
   .card {
     background: var(--panel); border: 1px solid var(--border);
-    border-radius: 10px; padding: 12px 14px;
+    border-radius: 12px; padding: 14px 16px;
   }
+  .card.sticky-results {
+    position: sticky; top: 12px;
+  }
+  @media (max-width: 960px) { .card.sticky-results { position: static; } }
   .card h2 {
-    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.06em;
-    color: var(--muted); margin: 12px 0 8px; font-weight: 600;
+    font-size: 0.7rem; text-transform: uppercase; letter-spacing: 0.07em;
+    color: var(--muted); margin: 16px 0 10px; font-weight: 650;
   }
   .card h2:first-child { margin-top: 0; }
-  label.row {
-    display: grid; grid-template-columns: 118px 1fr 58px;
-    align-items: center; gap: 7px; margin-bottom: 7px; font-size: 0.87rem;
+  .card h2 .hint { font-weight: 400; text-transform: none; letter-spacing: 0; opacity: 0.75; margin-left: 6px; }
+
+  /* Hybrid control row: label | number | slider | unit */
+  .ctrl {
+    display: grid;
+    grid-template-columns: 112px 72px 1fr auto;
+    align-items: center; gap: 8px;
+    margin-bottom: 9px; font-size: 0.86rem; min-height: var(--row-h);
   }
-  label.row.full { grid-template-columns: 118px 1fr; }
-  label.row span.val {
-    text-align: right; font-variant-numeric: tabular-nums;
-    color: var(--accent2); font-size: 0.82rem;
+  .ctrl.full { grid-template-columns: 112px 1fr; }
+  .ctrl .lbl { color: var(--text); line-height: 1.2; }
+  .ctrl .unit {
+    min-width: 52px; text-align: right; font-variant-numeric: tabular-nums;
+    color: var(--accent2); font-size: 0.82rem; white-space: nowrap;
   }
-  input[type=range] { width: 100%; accent-color: var(--accent); }
-  select, input[type=number], input[type=text] {
+  .ctrl input[type=number] {
+    width: 72px; background: var(--input); border: 1px solid var(--border);
+    color: var(--text); border-radius: 6px; padding: 5px 6px; font-size: 0.84rem;
+    font-variant-numeric: tabular-nums; text-align: right;
+  }
+  .ctrl input[type=number]:focus {
+    outline: none; border-color: var(--accent2); box-shadow: 0 0 0 2px #58a6ff33;
+  }
+  .ctrl input[type=range] {
+    width: 100%; height: 28px; margin: 0; accent-color: var(--accent);
+    cursor: pointer; touch-action: none;
+  }
+  /* Larger touch target without changing visual track much */
+  .ctrl input[type=range]::-webkit-slider-thumb {
+    -webkit-appearance: none; appearance: none;
+    width: 16px; height: 16px; border-radius: 50%;
+    background: var(--accent); border: 2px solid #fff3; cursor: grab;
+  }
+  .ctrl input[type=range]::-webkit-slider-thumb:active { cursor: grabbing; }
+
+  .stepper {
+    display: inline-flex; gap: 2px; vertical-align: middle;
+  }
+  .stepper button {
+    width: 26px; height: 26px; padding: 0; border-radius: 5px;
+    background: var(--input); border: 1px solid var(--border); color: var(--text);
+    font-size: 0.95rem; line-height: 1; cursor: pointer; user-select: none;
+  }
+  .stepper button:hover { border-color: var(--accent2); color: var(--accent2); }
+  .stepper button:active { background: #30363d; }
+
+  select, input[type=text] {
     width: 100%; background: var(--input); border: 1px solid var(--border);
-    color: var(--text); border-radius: 6px; padding: 5px 8px; font-size: 0.87rem;
+    color: var(--text); border-radius: 6px; padding: 6px 8px; font-size: 0.86rem;
   }
-  select.overridden {
-    color: var(--muted); font-style: italic;
-  }
-  .toggles { display: flex; flex-wrap: wrap; gap: 6px 12px; margin-bottom: 4px; }
-  .toggles label { display: flex; align-items: center; gap: 4px; font-size: 0.84rem; cursor: pointer; }
-  .result-big { font-size: 2rem; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; }
-  .result-sub { color: var(--muted); font-size: 0.84rem; margin-top: 2px; }
-  .bars { margin-top: 10px; }
-  .bar-row { margin-bottom: 6px; }
+  select.overridden { color: var(--muted); font-style: italic; }
+  .toggles { display: flex; flex-wrap: wrap; gap: 8px 14px; margin-bottom: 6px; }
+  .toggles label { display: flex; align-items: center; gap: 5px; font-size: 0.84rem; cursor: pointer; user-select: none; }
+  .result-big { font-size: 2.05rem; font-weight: 700; color: var(--accent); font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  .result-sub { color: var(--muted); font-size: 0.86rem; margin-top: 3px; }
+  .bars { margin-top: 12px; }
+  .bar-row { margin-bottom: 7px; }
   .bar-label { display: flex; justify-content: space-between; font-size: 0.8rem; margin-bottom: 2px; }
   .bar-track { height: 8px; background: #21262d; border-radius: 4px; overflow: hidden; }
-  .bar-seg { height: 100%; }
-  table.breakdown { width: 100%; border-collapse: collapse; font-size: 0.84rem; margin-top: 4px; }
-  table.breakdown td { padding: 2px 0; border-bottom: 1px solid #21262d; }
+  .bar-seg { height: 100%; border-radius: 4px; }
+  table.breakdown { width: 100%; border-collapse: collapse; font-size: 0.84rem; margin-top: 6px; }
+  table.breakdown td { padding: 3px 0; border-bottom: 1px solid #21262d; }
   table.breakdown td:last-child { text-align: right; font-variant-numeric: tabular-nums; color: var(--accent2); }
-  .note { font-size: 0.75rem; color: var(--muted); margin-top: 8px; }
+  .note { font-size: 0.75rem; color: var(--muted); margin-top: 10px; line-height: 1.45; }
   .fit-ok { color: var(--accent); } .fit-tight { color: var(--warn); } .fit-no { color: var(--danger); }
-  .arch-meta { font-size: 0.78rem; color: var(--muted); margin: -2px 0 8px; min-height: 1.1em; }
+  .arch-meta { font-size: 0.78rem; color: var(--muted); margin: -2px 0 10px; min-height: 1.15em; }
   .cmd-box {
     position: relative; background: #0d1117; border: 1px solid var(--border);
-    border-radius: 6px; padding: 9px 11px; margin-top: 4px;
+    border-radius: 8px; padding: 10px 12px; margin-top: 4px;
   }
   .cmd-box pre {
     margin: 0; font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
@@ -71,62 +113,73 @@
     padding-right: 56px; line-height: 1.5;
   }
   .cmd-box button {
-    position: absolute; top: 7px; right: 7px; background: var(--input);
-    border: 1px solid var(--border); color: var(--text); border-radius: 4px;
-    padding: 2px 8px; font-size: 0.7rem; cursor: pointer;
+    position: absolute; top: 8px; right: 8px; background: var(--input);
+    border: 1px solid var(--border); color: var(--text); border-radius: 5px;
+    padding: 3px 9px; font-size: 0.72rem; cursor: pointer;
   }
   .cmd-box button:hover, .cmd-box button.copied { color: var(--accent); }
   .drop-zone {
-    border: 1px dashed var(--border); border-radius: 6px; padding: 11px;
-    text-align: center; color: var(--muted); font-size: 0.8rem; margin-bottom: 8px;
+    border: 1px dashed var(--border); border-radius: 8px; padding: 12px;
+    text-align: center; color: var(--muted); font-size: 0.8rem; margin-bottom: 10px;
     background: #161b2244;
   }
   .drop-zone.dragover { border-color: var(--accent2); background: #1f6feb15; color: var(--accent2); }
   .drop-zone button {
     background: var(--input); border: 1px solid var(--border); color: var(--text);
-    border-radius: 6px; padding: 5px 10px; font-size: 0.8rem; cursor: pointer;
+    border-radius: 6px; padding: 5px 11px; font-size: 0.8rem; cursor: pointer;
   }
   .drop-zone button.primary { background: #1f6feb22; border-color: #1f6feb; color: var(--accent2); }
-  .model-list { max-height: 140px; overflow-y: auto; margin-bottom: 8px; font-size: 0.78rem; }
+  .model-list { max-height: 148px; overflow-y: auto; margin-bottom: 8px; font-size: 0.78rem; }
   .model-list .item {
-    display: flex; justify-content: space-between; gap: 8px; padding: 3px 6px;
-    border-radius: 4px; cursor: pointer;
+    display: flex; justify-content: space-between; gap: 8px; padding: 4px 7px;
+    border-radius: 5px; cursor: pointer;
   }
   .model-list .item:hover, .model-list .item.active { background: #21262d; }
   .model-list .item .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .model-list .item .size { color: var(--accent2); font-variant-numeric: tabular-nums; flex-shrink: 0; }
+  .ctx-presets {
+    display: flex; flex-wrap: wrap; gap: 5px; margin: -2px 0 10px 112px;
+  }
+  .ctx-presets button {
+    background: var(--input); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 999px; padding: 2px 9px; font-size: 0.72rem; cursor: pointer;
+  }
+  .ctx-presets button:hover, .ctx-presets button.active {
+    border-color: var(--accent2); color: var(--accent2);
+  }
+  .section-note { font-size: 0.72rem; color: var(--muted); margin: -4px 0 8px 0; }
 </style>
 </head>
 <body>
   <h1>GGUF VRAM Calculator</h1>
-  <div class="sub">Architecture-aware · hybrid / dual-geometry / MLA / residual · same core formulas as llama-swap-dashboard</div>
+  <div class="sub">Architecture-aware · hybrid / dual-geometry / MLA · calibrated CUDA overhead</div>
 
   <div class="grid">
     <!-- ════════ LEFT ════════ -->
     <div class="card">
       <h2>Model</h2>
-      <label class="row full">
-        <span>Architecture</span>
+      <div class="ctrl full">
+        <span class="lbl">Architecture</span>
         <select id="arch"></select>
-      </label>
+      </div>
       <div class="arch-meta" id="archMeta"></div>
 
-      <label class="row full">
-        <span>Weight quant</span>
+      <div class="ctrl full">
+        <span class="lbl">Weight quant</span>
         <select id="weightQuant"></select>
-      </label>
-      <label class="row full">
-        <span>Size override</span>
+      </div>
+      <div class="ctrl full">
+        <span class="lbl">Size override</span>
         <div style="display:flex;gap:6px;align-items:center">
           <input type="number" id="weightOverride" min="0" step="0.1" placeholder="auto from quant" style="flex:1">
           <span style="color:var(--muted);font-size:0.78rem">GB</span>
         </div>
-      </label>
-      <label class="row full">
-        <span>Model path</span>
+      </div>
+      <div class="ctrl full">
+        <span class="lbl">Model path</span>
         <input type="text" id="modelPath" placeholder="./models/model.gguf" spellcheck="false"
                style="font-family:ui-monospace,monospace;font-size:0.82rem">
-      </label>
+      </div>
 
       <div id="dropZone" class="drop-zone">
         <div style="margin-bottom:5px">Drop .gguf file(s) or browse</div>
@@ -139,41 +192,58 @@
       </div>
       <div id="modelList" class="model-list" style="display:none"></div>
 
-      <label class="row full">
-        <span>Cache K (-ctk)</span>
+      <div class="ctrl full">
+        <span class="lbl">Cache K (-ctk)</span>
         <select id="ctk"></select>
-      </label>
-      <label class="row full">
-        <span>Cache V (-ctv)</span>
+      </div>
+      <div class="ctrl full">
+        <span class="lbl">Cache V (-ctv)</span>
         <select id="ctv"></select>
-      </label>
-      <label class="row full">
-        <span>Cache RAM cap (offload to system)</span>
-        <input type="range" id="cacheRam" min="0" max="128" step="2" value="0">
-        <span class="val" id="cacheRamVal">Off</span>
-      </label>
+      </div>
+      <div class="ctrl">
+        <span class="lbl">Cache RAM cap</span>
+        <input type="number" id="cacheRamNum" min="0" max="128" step="1" value="0" title="0 = off">
+        <input type="range" id="cacheRam" min="0" max="128" step="1" value="0">
+        <span class="unit" id="cacheRamVal">Off</span>
+      </div>
 
-      <h2>Context &amp; offload</h2>
-      <label class="row">
-        <span>Context (-c)</span>
-        <input type="range" id="ctx" min="0" max="100" step="1" value="22">
-        <span class="val" id="ctxVal">64k</span>
-      </label>
-      <label class="row">
-        <span>GPU layers (-ngl)</span>
+      <h2>Context &amp; offload <span class="hint">type exact or drag</span></h2>
+      <div class="section-note">Context curve: ~128k @ 60% · ~262k @ 80% · 1M @ 100%</div>
+      <div class="ctrl">
+        <span class="lbl">Context (-c)</span>
+        <input type="number" id="ctxNum" min="512" max="1048576" step="1024" value="65536" title="Exact tokens">
+        <input type="range" id="ctx" min="0" max="1000" step="1" value="500" title="Drag for coarse control">
+        <span class="unit" id="ctxVal">64k</span>
+      </div>
+      <div class="ctx-presets" id="ctxPresets">
+        <button type="button" data-ctx="4096">4k</button>
+        <button type="button" data-ctx="8192">8k</button>
+        <button type="button" data-ctx="16384">16k</button>
+        <button type="button" data-ctx="32768">32k</button>
+        <button type="button" data-ctx="65536">64k</button>
+        <button type="button" data-ctx="131072">128k</button>
+        <button type="button" data-ctx="262144">262k</button>
+        <button type="button" data-ctx="524288">512k</button>
+        <button type="button" data-ctx="1048576">1M</button>
+      </div>
+      <div class="ctrl">
+        <span class="lbl">GPU layers (-ngl)</span>
+        <input type="number" id="nglNum" min="0" max="128" step="1" value="99">
         <input type="range" id="ngl" min="0" max="128" step="1" value="99">
-        <span class="val" id="nglVal">99</span>
-      </label>
-      <label class="row">
-        <span>Batch (-b)</span>
-        <input type="range" id="batch" min="128" max="4096" step="128" value="2048">
-        <span class="val" id="batchVal">2048</span>
-      </label>
-      <label class="row">
-        <span>Ubatch (-ub)</span>
-        <input type="range" id="ubatch" min="64" max="8192" step="64" value="512">
-        <span class="val" id="ubatchVal">512</span>
-      </label>
+        <span class="unit" id="nglVal">99</span>
+      </div>
+      <div class="ctrl">
+        <span class="lbl">Batch (-b)</span>
+        <input type="number" id="batchNum" min="128" max="8192" step="64" value="2048">
+        <input type="range" id="batch" min="128" max="4096" step="64" value="2048">
+        <span class="unit" id="batchVal">2048</span>
+      </div>
+      <div class="ctrl">
+        <span class="lbl">Ubatch (-ub)</span>
+        <input type="number" id="ubatchNum" min="64" max="8192" step="32" value="512">
+        <input type="range" id="ubatch" min="64" max="8192" step="32" value="512">
+        <span class="unit" id="ubatchVal">512</span>
+      </div>
 
       <h2>Extras</h2>
       <div class="toggles">
@@ -182,52 +252,57 @@
         <label><input type="checkbox" id="ot"> -ot</label>
         <label><input type="checkbox" id="fa" checked> flash-attn</label>
       </div>
-      <label class="row" id="mmprojRow" style="display:none">
-        <span>mmproj size</span>
-        <input type="range" id="mmprojMb" min="200" max="2000" step="50" value="860">
-        <span class="val" id="mmprojVal">0.84 GB</span>
-      </label>
-      <label class="row" id="mtpRow" style="display:none">
-        <span>MTP heads</span>
-        <input type="range" id="mtpN" min="1" max="3" step="1" value="2">
-        <span class="val" id="mtpNVal">2</span>
-      </label>
-      <label class="row">
-        <span>Active GPUs</span>
+      <div class="ctrl" id="mmprojRow" style="display:none">
+        <span class="lbl">mmproj size</span>
+        <input type="number" id="mmprojMbNum" min="200" max="2000" step="10" value="860">
+        <input type="range" id="mmprojMb" min="200" max="2000" step="10" value="860">
+        <span class="unit" id="mmprojVal">0.84 GB</span>
+      </div>
+      <div class="ctrl" id="mtpRow" style="display:none">
+        <span class="lbl">MTP heads</span>
+        <input type="number" id="mtpNNum" min="1" max="4" step="1" value="2">
+        <input type="range" id="mtpN" min="1" max="4" step="1" value="2">
+        <span class="unit" id="mtpNVal">2</span>
+      </div>
+      <div class="ctrl">
+        <span class="lbl">Active GPUs</span>
+        <input type="number" id="ngpuNum" min="1" max="8" step="1" value="1">
         <input type="range" id="ngpu" min="1" max="8" step="1" value="1">
-        <span class="val" id="ngpuVal">1</span>
-      </label>
-      <label class="row full">
-        <span>Backend</span>
+        <span class="unit" id="ngpuVal">1</span>
+      </div>
+      <div class="ctrl full">
+        <span class="lbl">Backend</span>
         <select id="backend">
           <option value="cuda">CUDA</option>
           <option value="rocm">ROCm</option>
           <option value="vulkan">Vulkan</option>
         </select>
-      </label>
-      <label class="row">
-        <span>Port</span>
+      </div>
+      <div class="ctrl">
+        <span class="lbl">Port</span>
         <input type="number" id="port" min="1" max="65535" value="8080">
-        <span class="val" id="portVal">8080</span>
-      </label>
+        <span></span>
+        <span class="unit" id="portVal">8080</span>
+      </div>
 
-      <label class="row full" id="moeOffloadRow" style="display:none">
-        <span>MoE experts</span>
+      <div class="ctrl full" id="moeOffloadRow" style="display:none">
+        <span class="lbl">MoE experts</span>
         <select id="moeOffload">
           <option value="none">None (all on GPU)</option>
           <option value="all">--cpu-moe (all on CPU)</option>
           <option value="partial">--n-cpu-moe N</option>
         </select>
-      </label>
-      <label class="row" id="moeCpuNRow" style="display:none">
-        <span>Experts on CPU</span>
+      </div>
+      <div class="ctrl" id="moeCpuNRow" style="display:none">
+        <span class="lbl">Expert layers on CPU</span>
+        <input type="number" id="moeCpuNNum" min="0" max="64" step="1" value="20">
         <input type="range" id="moeCpuN" min="0" max="64" step="1" value="20">
-        <span class="val" id="moeCpuNVal">20</span>
-      </label>
+        <span class="unit" id="moeCpuNVal">20</span>
+      </div>
 
-      <h2>OS / display reserve</h2>
-      <label class="row full">
-        <span>OS profile</span>
+      <h2>OS / display &amp; target</h2>
+      <div class="ctrl full">
+        <span class="lbl">OS profile</span>
         <select id="osProfile">
           <option value="none">None (headless)</option>
           <option value="linux-light">Linux light (~0.4–0.8 GB)</option>
@@ -236,26 +311,29 @@
           <option value="win-full">Windows full + Discord (~1.5–3.0 GB)</option>
           <option value="custom">Custom</option>
         </select>
-      </label>
-      <label class="row" id="osCustomRow" style="display:none">
-        <span>Custom OS</span>
+      </div>
+      <div class="ctrl" id="osCustomRow" style="display:none">
+        <span class="lbl">Custom OS</span>
+        <input type="number" id="osCustomNum" min="0" max="4096" step="64" value="1024">
         <input type="range" id="osCustom" min="0" max="4096" step="64" value="1024">
-        <span class="val" id="osCustomVal">1.0 GB</span>
-      </label>
-      <label class="row">
-        <span>Extra reserve</span>
-        <input type="range" id="reserve" min="0" max="4096" step="128" value="512">
-        <span class="val" id="reserveVal">0.5 GB</span>
-      </label>
-      <label class="row">
-        <span>Target VRAM</span>
-        <input type="range" id="target" min="6" max="192" step="1" value="24">
-        <span class="val" id="targetVal">24 GB</span>
-      </label>
+        <span class="unit" id="osCustomVal">1.0 GB</span>
+      </div>
+      <div class="ctrl">
+        <span class="lbl">Extra reserve</span>
+        <input type="number" id="reserveNum" min="0" max="8192" step="64" value="512">
+        <input type="range" id="reserve" min="0" max="4096" step="64" value="512">
+        <span class="unit" id="reserveVal">0.5 GB</span>
+      </div>
+      <div class="ctrl">
+        <span class="lbl">Target VRAM</span>
+        <input type="number" id="targetNum" min="4" max="256" step="1" value="24" title="Your card total VRAM (GB)">
+        <input type="range" id="target" min="4" max="192" step="1" value="24">
+        <span class="unit" id="targetVal">24 GB</span>
+      </div>
     </div>
 
     <!-- ════════ RIGHT ════════ -->
-    <div class="card">
+    <div class="card sticky-results">
       <h2>Estimate</h2>
       <div class="result-big" id="totalGb">—</div>
       <div class="result-sub" id="fitLine">—</div>
@@ -281,10 +359,10 @@ const ARCH = {
   "qwen3.5-27b":     { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, label:"Qwen3.5 27B", w:{q4_k_m:16500,q5_k_s:19300,q5_k_m:19800,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
   "qwen3.5-9b":     { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, label:"Qwen3.5 9B",  w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
   "qwen3.5-8b":      { layers:48, kv:4, dim:256, kind:"hybrid", eff:12, label:"Qwen3.5 8B",  w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,iq4_xs:4200,f16:16000} },
-  "qwen3.6-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, active:3, total:35, experts:128, label:"Qwen3.6 35B-A3B", w:{q4_k_m:20000,q4_k_xl:22940,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
-  "qwen3.5-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, active:3, total:35, experts:128, label:"Qwen3.5 35B-A3B", w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
-  "qwen3.5-122b-a10b":{layers:64, kv:8, dim:256, kind:"hybrid", eff:16, moe:true, active:10, total:122, experts:128, label:"Qwen3.5 122B-A10B", w:{q4_k_m:65000,q5_k_m:78000,q6_k:92000,q8_0:120000,f16:230000} },
-  "qwen3.5-397b-a17b":{layers:72, kv:8, dim:256, kind:"hybrid", eff:18, moe:true, active:17, total:397, experts:256, label:"Qwen3.5 397B-A17B", w:{q4_k_m:180000,q5_k_m:220000,q6_k:260000,q8_0:340000,f16:700000} },
+  "qwen3.6-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, active:3, total:35, experts:256, label:"Qwen3.6 35B-A3B", w:{q4_k_m:20000,q4_k_xl:22940,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
+  "qwen3.5-35b-a3b": { layers:40, kv:2, dim:256, kind:"hybrid", eff:10, moe:true, active:3, total:35, experts:256, label:"Qwen3.5 35B-A3B", w:{q4_k_m:20000,q5_k_m:24000,q6_k:28000,q8_0:36000,iq4_xs:18000,f16:70000} },
+  "qwen3.5-122b-a10b":{layers:48, kv:2, dim:256, kind:"hybrid", eff:12, moe:true, active:10, total:122, experts:256, label:"Qwen3.5 122B-A10B", w:{q4_k_m:65000,q5_k_m:78000,q6_k:92000,q8_0:120000,f16:230000} },
+  "qwen3.5-397b-a17b":{layers:60, kv:2, dim:256, kind:"hybrid", eff:15, moe:true, active:17, total:397, experts:512, label:"Qwen3.5 397B-A17B", w:{q4_k_m:180000,q5_k_m:220000,q6_k:260000,q8_0:340000,f16:700000} },
   "bonsai":          { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, label:"Bonsai 27B (1-bit Qwen3.6)", w:{q1_0:3994,tq1_0:3994,q2_0:7200,tq2_0:7200,q4_k_m:9000,f16:54000} },
   "qwen3-32b": { layers:64, kv:8, dim:128, kind:"dense", label:"Qwen3 32B", w:{q4_k_m:18000,q5_k_m:22000,q6_k:26000,q8_0:34000,iq4_xs:16000,f16:64000} },
   "qwen3-14b": { layers:40, kv:8, dim:128, kind:"dense", label:"Qwen3 14B", w:{q4_k_m:8500,q5_k_m:10000,q6_k:12000,q8_0:15000,f16:28000} },
@@ -329,6 +407,7 @@ const ARCH = {
 
   "deepseek-v3": { layers:61, kv:128, dim:128, kind:"mla", label:"DeepSeek V3", w:{q4_k_m:350000,q5_k_m:420000,q6_k:500000,q8_0:650000,f16:1300000} },
   "deepseek-r1": { layers:61, kv:128, dim:128, kind:"mla", label:"DeepSeek R1", w:{q4_k_m:350000,q5_k_m:420000,q6_k:500000,q8_0:650000,f16:1300000} },
+  "deepseek-v4-flash": { layers:43, headDim:512, sliding:128, kind:"dshybrid", moe:true, active:13, total:284, experts:256, expertShare:0.98, nCsa:21, nHca:20, csaRatio:4, hcaRatio:128, idxDim:128, label:"DeepSeek V4 Flash", w:{iq1_s:82500,iq1_m:86900,iq2_xxs:86700,iq2_m:90900,q2_k:90900,q2_k_xl:96800,iq3_xxs:103000,iq3_s:117300,q3_k_m:129300,iq4_xs:137900,iq4_nl:137900,q4_k_m:155000,q4_k_xl:156000,q8_0:162000,f16:320000} },
 
   "mistral-7b":    { layers:32, kv:8, dim:128, kind:"dense", label:"Mistral 7B",    w:{q4_k_m:4200,q5_k_m:5000,q6_k:5800,q8_0:7500,f16:14000} },
   "mistral-nemo-2":{ layers:40, kv:8, dim:128, kind:"dense", label:"Mistral Nemo 2", w:{q4_k_m:7200,q5_k_m:8600,q6_k:10000,q8_0:13000,f16:24000} },
@@ -357,13 +436,13 @@ const CACHE_BYTES = {
   q2_0:0.1875, tq2_0:0.1875, "1.58bit":0.1875, ternary:0.1875, bitnet:0.1875,
   exl2:0.5, exl3:0.5
 };
-const CACHE_OPTS  = Object.keys(CACHE_BYTES);
+const CACHE_OPTS  = ["f16", "q8_0", "q4_0"];
 
 /* Exhaustive but practical weight quant list */
 const WEIGHT_OPTS = [
-  "q1_0","tq1_0","q2_0","tq2_0","q2_k",
-  "q3_k_s","q3_k_m",
-  "iq4_xs", "q4_0", "q4_k_s", "q4_k_m", "q4_k_xl",
+  "q1_0","tq1_0","iq1_s","iq1_m","q2_0","tq2_0","iq2_xxs","iq2_m","q2_k","q2_k_xl",
+  "q3_k_s","q3_k_m","iq3_xxs","iq3_s",
+  "iq4_xs","iq4_nl","q4_0","q4_k_s","q4_k_m","q4_k_xl",
   "q5_k_s","q5_k_m",
   "q6_k","q8_0","f16","bf16"
 ];
@@ -401,7 +480,7 @@ function populate() {
       "gemma2-2b","gemma2-9b","gemma2-27b",
       "gemma4-e2b","gemma4-e4b","gemma4-12b","gemma4-26b-a4b","gemma4-31b"
     ],
-    "DeepSeek MLA": ["deepseek-v3","deepseek-r1"],
+    "DeepSeek": ["deepseek-v3","deepseek-r1","deepseek-v4-flash"],
     "Mistral / Mixtral": [
       "mistral-7b","mistral-nemo-2","codestral","mixtral-8x7b","mixtral-8x22b"
     ],
@@ -445,20 +524,87 @@ function populate() {
 }
 
 function fmtCtx(n) {
-  if (n >= 1e6) return (n/1e6).toFixed(2).replace(/\.?0+$/,"") + "M";
-  if (n >= 1000) return (n/1000).toFixed(n%1000?1:0) + "k";
+  n = Math.round(+n || 0);
+  if (n >= 1e6) return (n/1e6).toFixed(n % 1e6 ? 2 : 0).replace(/\.?0+$/,"") + "M";
+  if (n >= 1000) return (n/1000).toFixed(n % 1000 ? 1 : 0) + "k";
   return String(n);
 }
 
+/* Smooth context curve (slider 0–1000):
+   0%→2k · 20%→8k · 40%→32k · 60%→128k · 80%→262k · 100%→1M
+   Piecewise linear on log-ish anchors, snapped to 1k boundaries. */
+const CTX_ANCHORS = [
+  { p: 0,   t: 2048 },
+  { p: 100, t: 4096 },
+  { p: 200, t: 8192 },
+  { p: 300, t: 16384 },
+  { p: 400, t: 32768 },
+  { p: 500, t: 65536 },
+  { p: 600, t: 131072 },
+  { p: 700, t: 196608 },
+  { p: 800, t: 262144 },
+  { p: 900, t: 524288 },
+  { p: 1000,t: 1048576 },
+];
 function ctxFromPct(p) {
-  // 0-45% → 2K-128K, 45-60% → 128K-256K, 60-80% → 256K-512K, 80-100% → 512K-1M
-  if (p <= 45) return Math.round((2048 + p * 125952 / 45) / 1024) * 1024;
-  if (p <= 60) return Math.round((128000 + (p - 45) * 128000 / 15) / 1024) * 1024;
-  if (p <= 80) return Math.round((256000 + (p - 60) * 256000 / 20) / 1024) * 1024;
-  return Math.round((512000 + (p - 80) * 536576 / 20) / 1024) * 1024;
+  p = Math.max(0, Math.min(1000, +p || 0));
+  for (let i = 0; i < CTX_ANCHORS.length - 1; i++) {
+    const a = CTX_ANCHORS[i], b = CTX_ANCHORS[i + 1];
+    if (p <= b.p) {
+      const t = (p - a.p) / (b.p - a.p);
+      return Math.round((a.t + t * (b.t - a.t)) / 1024) * 1024;
+    }
+  }
+  return 1048576;
+}
+function pctFromCtx(tokens) {
+  tokens = Math.max(2048, Math.min(1048576, +tokens || 2048));
+  for (let i = 0; i < CTX_ANCHORS.length - 1; i++) {
+    const a = CTX_ANCHORS[i], b = CTX_ANCHORS[i + 1];
+    if (tokens <= b.t) {
+      const t = (tokens - a.t) / (b.t - a.t);
+      return Math.round(a.p + t * (b.p - a.p));
+    }
+  }
+  return 1000;
+}
+function syncCtxFromSlider() {
+  const tokens = ctxFromPct(+$("ctx").value);
+  $("ctxNum").value = tokens;
+  $("ctxVal").textContent = fmtCtx(tokens);
+  highlightCtxPreset(tokens);
+}
+function syncCtxFromNum() {
+  let tokens = Math.round(+$("ctxNum").value || 65536);
+  tokens = Math.max(512, Math.min(1048576, tokens));
+  // snap to 512 boundary for nicer values
+  tokens = Math.round(tokens / 512) * 512;
+  $("ctxNum").value = tokens;
+  $("ctx").value = pctFromCtx(tokens);
+  $("ctxVal").textContent = fmtCtx(tokens);
+  highlightCtxPreset(tokens);
+}
+function highlightCtxPreset(tokens) {
+  document.querySelectorAll("#ctxPresets button").forEach(btn => {
+    btn.classList.toggle("active", +btn.dataset.ctx === tokens);
+  });
 }
 
 function calcKV(arch, kB, vB, tokens) {
+  if (arch.kind === "dshybrid") {
+    // DeepSeek-V4-Flash hybrid CSA/HCA (shared K=V, ratio-compressed history)
+    const bpe = (kB + vB) / 2;                    // shared K=V: one tensor, avg per-elem
+    const MB = 1024 * 1024;
+    const slide = arch.sliding || 128;
+    const swaMb = arch.layers * Math.min(tokens, slide) * arch.headDim * bpe / MB;   // all layers keep a raw window
+    const hist  = Math.max(0, tokens - slide);
+    const csaE  = Math.ceil(hist / arch.csaRatio);
+    const csaMb = arch.nCsa * csaE * arch.headDim * bpe / MB;                        // CSA (ratio 4)
+    const idxMb = arch.nCsa * csaE * (arch.idxDim || 128) * bpe / MB;                // indexer on CSA layers
+    const hcaE  = Math.ceil(hist / arch.hcaRatio);
+    const hcaMb = arch.nHca * hcaE * arch.headDim * bpe / MB;                        // HCA (ratio 128)
+    return swaMb + csaMb + idxMb + hcaMb;
+  }
   const bpe = kB + vB;
   if (arch.kind === "mla") {
     const avg = (kB + vB) / 2;
@@ -489,10 +635,10 @@ function refreshWeightOverrideState() {
   sel.classList.toggle("overridden", hasOverride);
   if (hasOverride) {
     sel.title = `Overridden to ${ov.value} GB`;
-    // Update displayed option text to show USER
+    // Mark only the selected option as USER (leave the rest uncluttered)
     [...sel.options].forEach(opt => {
       opt._origText = opt._origText || opt.textContent;
-      opt.textContent = `${opt._origText} (USER)`;
+      opt.textContent = opt.selected ? `${opt._origText} (USER)` : opt._origText;
     });
   } else {
     sel.title = "";
@@ -676,8 +822,15 @@ function initScanner() {
   });
 }
 
+function currentCtx() {
+  // Prefer exact number input; fall back to slider mapping
+  const n = +$("ctxNum").value;
+  if (!isNaN(n) && n >= 512) return Math.round(n);
+  return ctxFromPct(+$("ctx").value);
+}
+
 function updateCliCommand(key, arch, effectiveNgl) {
-  const ctx = ctxFromPct(+$("ctx").value);
+  const ctx = currentCtx();
   const layers = arch.layers;
   const ngl = Math.min(effectiveNgl ?? +$("ngl").value, layers);
   const batch = +$("batch").value;
@@ -707,22 +860,24 @@ function updateCliCommand(key, arch, effectiveNgl) {
   if (cacheRamGb > 0) flags.push(`--cache-ram ${cacheRamGb}`);
   if (useFa) flags.push(`-fa`);
   if (useOt) {
-    if (arch.moe) {
-      flags.push(`-ot ".*exps.=CPU"`);
+      if (arch.moe) {
+        // MoE expert placement is handled by --cpu-moe / --n-cpu-moe below;
+        // an -ot pattern here would silently override a partial offload selection.
+      }
     }
-  }
-  if (useMmproj) flags.push(`--mmproj <path-to-mmproj.gguf>`);
-  if (useMtp) {
-    flags.push(`--spec-type draft-mtp`);
-    flags.push(`--spec-draft-n-max ${mtpN}`);
-  }
-  if (arch.moe) {
-    if (moeMode === "all") flags.push(`--cpu-moe`);
-    else if (moeMode === "partial" && moeCpuN > 0) flags.push(`--n-cpu-moe ${moeCpuN}`);
-  }
+    if (useMmproj) flags.push(`--mmproj <path-to-mmproj.gguf>`);
+    if (useMtp) {
+      flags.push(`--spec-type draft-mtp`);
+      flags.push(`--spec-draft-n-max ${mtpN}`);
+    }
+    if (arch.moe) {
+      if (moeMode === "all") flags.push(`--cpu-moe`);
+      else if (moeMode === "partial" && moeCpuN > 0) flags.push(`--n-cpu-moe ${moeCpuN}`);
+    }
 
-  $("cliCmd").textContent = flags.join(" \\\\\\n  ") + "\\n";
-    if (useOt && !arch.moe) $("cliCmd").textContent += "\n# -ot requires a pattern, e.g. -ot \".*attn_q.=CPU\"";
+    $("cliCmd").textContent = flags.join(" \\\\\n  ") + "\n";
+      if (useOt && arch.moe) $("cliCmd").textContent += "\n# MoE: expert placement is set via --cpu-moe/--n-cpu-moe";
+      if (useOt && !arch.moe) $("cliCmd").textContent += "\n# -ot requires a pattern, e.g. -ot \".*attn_q.=CPU\"";
     if (ngpu > 1) $("cliCmd").textContent += "\n# multi-GPU: add -ts … or --split-mode layer";
 }
 
@@ -759,7 +914,7 @@ function estimate() {
 
   const kB = CACHE_BYTES[$("ctk").value];
   const vB = CACHE_BYTES[$("ctv").value];
-  const ctx = ctxFromPct(+$("ctx").value);
+  const ctx = currentCtx();
   const layers = arch.layers;
   let ngl = Math.min(+$("ngl").value, layers);
   const batch = +$("batch").value;
@@ -770,7 +925,7 @@ function estimate() {
   const useMtp = $("mtp").checked;
   const useOt = $("ot").checked;
   const useFa = $("fa").checked;
-  const targetGb = +$("target").value;
+  const targetGb = +$("targetNum").value || +$("target").value;
   const reserveMb = +$("reserve").value;
   const desktopMb = osOverheadMb();
   let mmprojMb = useMmproj ? +$("mmprojMb").value : 0;
@@ -787,7 +942,7 @@ function estimate() {
   let offloadRatio = Math.max(0, Math.min(ngl, layers)) / layers;
   if (useOt && offloadRatio > 0 && offloadRatio < 1) offloadRatio = Math.min(offloadRatio, 0.85);
 
-  const isHybrid = arch.kind === "hybrid";
+  const isHybrid = arch.kind === "hybrid" || arch.kind === "dshybrid";
   const isMoe = !!arch.moe;
   const residualLayers = isHybrid ? 1.6 : 2.1;
   const perLayer = weightMb / layers;
@@ -803,8 +958,8 @@ function estimate() {
       const n = Math.min(+$("moeCpuN").value, totalLayers);
       expertOffloadRatio = n / totalLayers;          // --n-cpu-moe = layers, not individual experts
     }
-    // ~83% of MoE weight mass is offloadable experts (calibrated)
-    weightMb *= (1.0 - 0.855 * expertOffloadRatio);
+    // ~83% of MoE weight mass is offloadable experts (calibrated; arch.expertShare overrides)
+    weightMb *= (1.0 - (arch.expertShare || 0.855) * expertOffloadRatio);
   }
 
   let weightOnGpu;
@@ -842,8 +997,8 @@ function estimate() {
   // ── Runtime overhead ────────────────────────────────────────────────
   // Saturating ubatch contribution (realistic up to 8k)
   function ubatchFactor(ub) {
-    // Rapid rise to ~2048, then strong diminishing returns
-    return 65 + 0.55 * Math.min(ub, 2048) + 0.18 * Math.max(0, ub - 2048);
+    // Lower base + softer ubatch scaling (planning used 65/0.55/0.18)
+    return 40 + 0.40 * Math.min(ub, 2048) + 0.12 * Math.max(0, ub - 2048);
   }
 
     // Base compute stays single-GPU sized.
@@ -872,8 +1027,8 @@ function estimate() {
     fa = useFa ? 0 : (ctx > 16384 ? 55 : 22) * sizeFactor * ngpu;
     sync = ngpu > 1 ? 30 * sizeFactor * ngpu : 0;
   } else {
-    // CUDA (audited)
-    cudaCtx = 220 + 90 * (ngpu - 1);
+    // CUDA (was 220 + 90*(ngpu-1) in planning build)
+    cudaCtx = 140 + 60 * (ngpu - 1);
 
     compute = ubatchFactor(ubatch) * sizeFactor * multiGpuComputeScale(ngpu);
 
@@ -897,8 +1052,8 @@ function estimate() {
     compute += matExtra;
   }
 
-  // Long-context compute scaling (previous battle-test fix)
-  const ctxScale = 1.0 + Math.max(0, (ctx - 65536) / 180000) * 1.65;
+  // Long-context compute scaling (planning used *1.65)
+  const ctxScale = 1.0 + Math.max(0, (ctx - 65536) / 180000) * 0.85;
   compute *= ctxScale;
 
   // Multi-GPU overhaul (staging + context-aware sync)
@@ -919,6 +1074,11 @@ function estimate() {
   if (isMoe)    { cudaCtx *= 0.95; compute *= 0.95; fa *= 0.95; sync *= 0.95; }
 
   let overheadMb = cudaCtx + compute + fa + sync;
+  // Calibrated CUDA floor (2026-08, real llama.cpp totals: fixed ctx+compute overhead
+  // is ~1.4 GB on a 35B-A3B@65k; the old formula bottomed out ~0.18 GB).
+  // Binds only when the formula under-shoots; base scales with GPU count so the
+  // multi-GPU overhead spread (~context per GPU) isn't flattened on small models.
+  if (backend === "cuda") overheadMb = Math.max(overheadMb, 1330 + 250 * (ngpu - 1));
   const ceiling = backend === "vulkan" ? 0.12*weightMb+220
                 : backend === "rocm"   ? 0.18*weightMb+320
                 : 0.25*weightMb+480;
@@ -990,51 +1150,127 @@ function estimate() {
   $("table").innerHTML = rows.map(([a,b]) => `<tr><td>${a}</td><td>${b}</td></tr>`).join("");
 
   $("ngl").max = layers;
-  if (+$("ngl").value > layers) $("ngl").value = layers;
+  $("nglNum").max = layers;
+  if (+$("ngl").value > layers) { $("ngl").value = layers; $("nglNum").value = layers; }
   $("nglVal").textContent = `${Math.min(+$("ngl").value, layers)}/${layers}`;
 
   updateCliCommand(key, arch, Math.round(offloadRatio * layers));
 }
 
+/** Bidirectional sync helpers for hybrid number+slider pairs */
+function pair(sliderId, numId, opts = {}) {
+  const s = $(sliderId), n = $(numId);
+  if (!s || !n) return;
+  const fmt = opts.fmt || (v => String(v));
+  const unitId = opts.unitId;
+  const onChange = opts.onChange;
+
+  function fromSlider() {
+    let v = +s.value;
+    if (opts.snap) v = Math.round(v / opts.snap) * opts.snap;
+    n.value = v;
+    if (unitId) $(unitId).textContent = fmt(v);
+    if (onChange) onChange(v);
+  }
+  function fromNum() {
+    let v = +n.value;
+    if (isNaN(v)) v = +s.value;
+    v = Math.max(+s.min, Math.min(+s.max || 1e9, v));
+    if (opts.snap) v = Math.round(v / opts.snap) * opts.snap;
+    n.value = v;
+    // if number is outside slider max (e.g. batch), still use it
+    if (v >= +s.min && v <= +s.max) s.value = v;
+    if (unitId) $(unitId).textContent = fmt(v);
+    if (onChange) onChange(v);
+  }
+  s.addEventListener("input", () => { fromSlider(); estimate(); });
+  n.addEventListener("change", () => { fromNum(); estimate(); });
+  n.addEventListener("keydown", e => { if (e.key === "Enter") { fromNum(); estimate(); n.blur(); } });
+}
+
 function bind() {
-  const ids = ["arch","weightQuant","weightOverride","ctk","ctv","cacheRam","ctx","ngl","batch","ubatch",
-    "mmproj","mtp","ot","fa","mmprojMb","mtpN","ngpu","backend","port","moeOffload","moeCpuN",
-    "osProfile","osCustom","reserve","target"];
+  // Context: special (non-linear mapping)
+  $("ctx").addEventListener("input", () => { syncCtxFromSlider(); estimate(); });
+  $("ctxNum").addEventListener("change", () => { syncCtxFromNum(); estimate(); });
+  $("ctxNum").addEventListener("keydown", e => {
+    if (e.key === "Enter") { syncCtxFromNum(); estimate(); $("ctxNum").blur(); }
+  });
+  document.querySelectorAll("#ctxPresets button").forEach(btn => {
+    btn.addEventListener("click", () => {
+      $("ctxNum").value = +btn.dataset.ctx;
+      syncCtxFromNum();
+      estimate();
+    });
+  });
+
+  pair("ngl", "nglNum", {
+    unitId: "nglVal",
+    fmt: v => {
+      const layers = (ARCH[$("arch").value] || {}).layers || 128;
+      return `${Math.min(v, layers)}/${layers}`;
+    }
+  });
+  pair("batch", "batchNum", { unitId: "batchVal", snap: 64 });
+  pair("ubatch", "ubatchNum", {
+    unitId: "ubatchVal", snap: 32,
+    onChange: () => {
+      if (+$("ubatchNum").value > +$("batchNum").value) {
+        $("ubatchNum").value = $("batchNum").value;
+        $("ubatch").value = Math.min(+$("ubatch").max, +$("batchNum").value);
+        $("ubatchVal").textContent = $("ubatchNum").value;
+      }
+    }
+  });
+  pair("cacheRam", "cacheRamNum", {
+    unitId: "cacheRamVal",
+    fmt: v => v === 0 ? "Off" : v + " GB"
+  });
+  pair("ngpu", "ngpuNum", { unitId: "ngpuVal" });
+  pair("mmprojMb", "mmprojMbNum", {
+    unitId: "mmprojVal",
+    fmt: v => (v / 1024).toFixed(2) + " GB"
+  });
+  pair("mtpN", "mtpNNum", { unitId: "mtpNVal" });
+  pair("moeCpuN", "moeCpuNNum", { unitId: "moeCpuNVal" });
+  pair("osCustom", "osCustomNum", {
+    unitId: "osCustomVal",
+    fmt: v => (v / 1024).toFixed(2) + " GB"
+  });
+  pair("reserve", "reserveNum", {
+    unitId: "reserveVal",
+    fmt: v => (v / 1024).toFixed(2) + " GB"
+  });
+  pair("target", "targetNum", {
+    unitId: "targetVal",
+    fmt: v => v + " GB"
+  });
+
+  const ids = ["arch","weightQuant","weightOverride","ctk","ctv",
+    "mmproj","mtp","ot","fa","backend","port","moeOffload","osProfile"];
   ids.forEach(id => {
     $(id).addEventListener("input", () => {
-      if (id === "ctx") $("ctxVal").textContent = fmtCtx(ctxFromPct(+$("ctx").value));
-      if (id === "ngl") $("nglVal").textContent = $("ngl").value;
-      if (id === "batch") $("batchVal").textContent = $("batch").value;
-      if (id === "ubatch") $("ubatchVal").textContent = $("ubatch").value;
-      if (id === "batch" || id === "ubatch") {
-        const b = $("batch"), ub = $("ubatch");
-        if (+ub.value > +b.value) {
-          ub.value = b.value;
-          $("ubatchVal").textContent = ub.value;
-        }
-      }
-      if (id === "mtpN") $("mtpNVal").textContent = $("mtpN").value;
       if (id === "weightOverride") refreshWeightOverrideState();
-      if (id === "ngpu") $("ngpuVal").textContent = $("ngpu").value;
       if (id === "port") $("portVal").textContent = $("port").value;
-      if (id === "mmprojMb") $("mmprojVal").textContent = (+$("mmprojMb").value/1024).toFixed(2)+" GB";
-      if (id === "osCustom") $("osCustomVal").textContent = (+$("osCustom").value/1024).toFixed(2)+" GB";
-      if (id === "reserve") $("reserveVal").textContent = (+$("reserve").value/1024).toFixed(2)+" GB";
-      if (id === "cacheRam") $("cacheRamVal").textContent = +$("cacheRam").value === 0 ? "Off" : +$("cacheRam").value + " GB";
-      if (id === "target") $("targetVal").textContent = $("target").value + " GB";
       $("mmprojRow").style.display = $("mmproj").checked ? "grid" : "none";
       $("mtpRow").style.display = $("mtp").checked ? "grid" : "none";
       $("osCustomRow").style.display = $("osProfile").value === "custom" ? "grid" : "none";
       if (id === "arch") {
         const a = ARCH[$("arch").value];
         const layers = a.layers;
-        $("ngl").max = layers; $("ngl").value = layers;
+        $("ngl").max = layers;
+        $("nglNum").max = layers;
+        $("ngl").value = layers;
+        $("nglNum").value = layers;
+        $("nglVal").textContent = `${layers}/${layers}`;
         $("moeOffloadRow").style.display = a.moe ? "grid" : "none";
         $("moeCpuNRow").style.display = a.moe && $("moeOffload").value === "partial" ? "grid" : "none";
-        // Cap expert slider to real layer count (--n-cpu-moe = layers)
         if (a.moe) {
           $("moeCpuN").max = a.layers;
-          if (+$("moeCpuN").value > a.layers) $("moeCpuN").value = a.layers;
+          $("moeCpuNNum").max = a.layers;
+          if (+$("moeCpuN").value > a.layers) {
+            $("moeCpuN").value = a.layers;
+            $("moeCpuNNum").value = a.layers;
+          }
           $("moeCpuNVal").textContent = $("moeCpuN").value;
         }
         refreshWeightQuantOptions(a);
@@ -1043,7 +1279,6 @@ function bind() {
       if (id === "moeOffload") {
         $("moeCpuNRow").style.display = $("moeOffload").value === "partial" ? "grid" : "none";
       }
-      if (id === "moeCpuN") $("moeCpuNVal").textContent = $("moeCpuN").value;
       estimate();
     });
   });
@@ -1052,8 +1287,10 @@ function bind() {
 populate();
 bind();
 refreshWeightOverrideState();
+syncCtxFromNum(); // align slider to default 64k number
 estimate();
 initScanner();
 </script>
+<div style="margin-top:18px;text-align:center;color:#888;font-size:12px;">Created by LokeLoki · 2026</div>
 </body>
 </html>
