@@ -1219,21 +1219,52 @@ def get_aux_llama_server(aux_port):
     return None
 
 
-def get_aux_llama_vram(aux_dict, gpus):
+def get_aux_live_ctx(aux_port):
+    """Largest context the aux has actually used (llamacpp:n_tokens_max).
+
+    The full -c budget overstates reality (the aux sleeps after 10s and
+    never approaches 100k); this watermark sizes the KV part of the
+    footprint to what the workload actually reaches. Returns token count
+    (0 if metrics unavailable / never used).
+    """
+    try:
+        req = urllib.request.Request(f"http://127.0.0.1:{aux_port}/metrics")
+        with urllib.request.urlopen(req, timeout=1.5) as resp:
+            text = resp.read().decode("utf-8", errors="replace")
+        for line in text.splitlines():
+            if line.startswith("llamacpp:n_tokens_max"):
+                parts = line.split()
+                if len(parts) >= 2:
+                    try:
+                        return max(0, int(float(parts[-1])))
+                    except (ValueError, TypeError):
+                        pass
+    except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
+        pass
+    return 0
+
+
+def get_aux_llama_vram(aux_dict, gpus, live_ctx=0):
     """Aux VRAM via the full calibrated formula (shared with main model).
 
-    Cached per model path. Returns total MB or None (line then shows '—').
+    KV cache is sized to the observed usage watermark (n_tokens_max) rather
+    than the full -c budget — the aux idle-sleeps and never fills 100k, so
+    the budget number is meaningless. Cached per (model, ctx). Returns
+    total MB or None (line then shows '—').
     """
     if not aux_dict:
         return None
     name = aux_dict.get("model_path")
     cache = getattr(get_aux_llama_vram, "_cache", None)
-    if cache and cache["name"] == name:
+    if cache and cache["key"] == (name, live_ctx):
         return cache["total_mb"]
-    info = get_main_model_vram([aux_dict], [], gpus=gpus)
+    work = dict(aux_dict)
+    if live_ctx and live_ctx < work.get("max_context", 0):
+        work["max_context"] = live_ctx
+    info = get_main_model_vram([work], [], gpus=gpus)
     if info is None or not info.total_mb:
         return None
-    get_aux_llama_vram._cache = {"name": name, "total_mb": info.total_mb}
+    get_aux_llama_vram._cache = {"key": (name, live_ctx), "total_mb": info.total_mb}
     return info.total_mb
 
 
@@ -1805,7 +1836,9 @@ def detect_local_servers():
                 "proxy": None,
             })
 
-        return result_servers if result_servers else None
+        # Drop phantoms: a llama-server without a -m path is unusable
+        # (e.g. stray cmd windows whose bat filename matches the regex)
+        return [s for s in result_servers if s.get("model_path")] if result_servers else None
     except (subprocess.SubprocessError, OSError, TimeoutError):
         return None
 
@@ -3348,7 +3381,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_model, 
         )
     if aux_model:
         aux_short = short_model_name(aux_model.get("model_path") or aux_model.get("model_id") or "")
-        aux_total_mb = get_aux_llama_vram(aux_model, gpus)
+        aux_total_mb = get_aux_llama_vram(aux_model, gpus, get_aux_live_ctx(aux_port))
         aux_tps = fetch_plain_server_stats(f"http://127.0.0.1:{aux_port}").get("decode_tps")
         aux_active = get_aux_llama_active(aux_port)
         aux_vram_str = f"{aux_total_mb / 1024:.1f} GB" if aux_total_mb else "—"
@@ -3456,6 +3489,12 @@ def main():
                 # Fallback: if /running endpoint unavailable, detect local servers
                 if running_models is None:
                     running_models = detect_local_servers()
+                    # Exclude the aux llama-server — it must never masquerade as main
+                    if running_models:
+                        running_models = [
+                            rm for rm in running_models
+                            if not str(rm.get("host", "")).endswith(f":{aux_port}")
+                        ]
                     # Mark plain-server mode so render can adapt
                     if running_models:
                         for rm in running_models:
