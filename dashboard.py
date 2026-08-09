@@ -20,6 +20,7 @@ import math
 import os
 import re
 import shutil
+import struct
 import subprocess
 import sys
 import time
@@ -181,18 +182,24 @@ TOKEN_BUCKETS = [
 # Add more models here as needed — each entry is 3 numbers.
 MODEL_ARCHITECTURES = {
     # Qwen 3.6 / 3.5 (hybrid Gated DeltaNet + Gated Attention)
-    "qwen3.6-27b":   (64, 4, 256),
+    # Layer counts verified 2026-08 via GGUF headers + official configs +
+    # in-file tensor block counts (blk.0..N):
+    #   qwen3.6-27b = 65 real blocks in local GGFs (official config says 64)
+    #   qwen3.5-9b  = 32 (official config; was 48)
+    "qwen3.6-27b":   (65, 4, 256),
     "qwen3.5-27b":   (64, 4, 256),
-    "qwen3.5-9b":    (48, 4, 256),
-    "qwen3.5-8b":    (48, 4, 256),
+    "qwen3.5-9b":    (32, 4, 256),
+    "qwen3.5-8b":    (48, 4, 256),  # unverified variant; header-first covers it if local
     # Qwen 3.6 MoE
     "qwen3.6-35b-a3b":    (40, 2, 256),
     # Qwen 3.5 MoE
     "qwen3.5-35b-a3b":    (40, 2, 256),
     "qwen3.5-122b-a10b":  (64, 8, 256),
     "qwen3.5-397b-a17b":  (72, 8, 256),
-    # Ornith (Qwen3.5-based)
-    "ornith":        (48, 4, 256),
+    # Ornith (Qwen3.5-based) — file-verified: 9B = 33 blk overall (official 32),
+    # 35B MoE = 40/2/256 (official matches file); KV uses hybrid eff counts.
+    "ornith":        (33, 4, 256),
+    "ornith-35b":    (40, 2, 256),
     # Qwen 3 (dense)
     "qwen3-32b":     (64, 8, 128),
     "qwen3-14b":     (40, 8, 128),
@@ -571,10 +578,12 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
 
 
 QWEN_HYBRID_LAYERS = {
-    "qwen3.6-27b":   16,   # 64 total → 16 GatedAttn
+    "qwen3.6-27b":   16,   # 65/64 total → 16 GatedAttn (every 4th)
     "qwen3.5-27b":   16,
-    "qwen3.5-9b":    12,   # 48 total → 12 GatedAttn
-    "qwen3.5-8b":    12,
+    "qwen3.5-9b":    8,    # 32 total → 8 GatedAttn (verified official config)
+    "qwen3.5-8b":    12,   # unverified variant (kept); header-first covers it if local
+    "ornith":        8,    # 33 blk total → 8 GatedAttn (verified: ornith-9b)
+    "ornith-35b":    10,   # 40 total → 10 GatedAttn (verified: ornith-35b)
     # Qwen 3.6 MoE
     "qwen3.6-35b-a3b":    10,   # 40 total → 10 GatedAttn
     # Qwen 3.5 MoE
@@ -1955,6 +1964,111 @@ def short_model_name(model_path_or_id):
     return model_path_or_id
 
 
+_GGUF_META_CACHE = {}
+
+
+def read_gguf_meta(path):
+    """Parse a GGUF file's header KV metadata (source of truth for model geometry).
+
+    Reads only the typed KV section at the front of the file — never the tensor
+    data — via native struct. Returns a dict of wanted fields (architecture,
+    layers, context_length, kv heads, head/key/value dims, expert counts) and
+    stops as soon as every wanted key has been seen (geometry keys always come
+    before the tokenizer blobs). Cached by (path, size, mtime). Never raises;
+    returns None for unreadable / non-GGUF files.
+    """
+    if not path:
+        return None
+    try:
+        st = os.stat(path)
+    except OSError:
+        return None
+    ckey = (path, st.st_size, st.st_mtime_ns)
+    if ckey in _GGUF_META_CACHE:
+        return _GGUF_META_CACHE[ckey]
+    meta = None
+    try:
+        with open(path, "rb") as f:
+            magic, _ver, _nt, nkv = struct.unpack("<IIQQ", f.read(24))
+            if magic != 0x46554747:  # "GGUF"
+                return None
+
+            def read_val(fh, vt):
+                if vt == 0:  return struct.unpack("<B", fh.read(1))[0]
+                if vt == 1:  return struct.unpack("<b", fh.read(1))[0]
+                if vt == 2:  return struct.unpack("<H", fh.read(2))[0]
+                if vt == 3:  return struct.unpack("<h", fh.read(2))[0]
+                if vt == 4:  return struct.unpack("<I", fh.read(4))[0]
+                if vt == 5:  return struct.unpack("<i", fh.read(4))[0]
+                if vt == 6:  return struct.unpack("<f", fh.read(4))[0]
+                if vt == 7:  return struct.unpack("<B", fh.read(1))[0] > 0
+                if vt == 10: return struct.unpack("<Q", fh.read(8))[0]
+                if vt == 11: return struct.unpack("<q", fh.read(8))[0]
+                if vt == 12: return struct.unpack("<d", fh.read(8))[0]
+                if vt == 8:
+                    n = struct.unpack("<Q", fh.read(8))[0]
+                    return fh.read(n).decode("utf-8", "replace")
+                if vt == 9:
+                    sub = struct.unpack("<I", fh.read(4))[0]
+                    cnt = struct.unpack("<Q", fh.read(8))[0]
+                    if cnt > 200_000 or (sub == 8 and cnt > 50_000):
+                        return None  # defensive: absurd array sizes
+                    if sub == 8:
+                        return [read_val(fh, 8) for _ in range(cnt)]
+                    return [read_val(fh, sub) for _ in range(cnt)]
+                return None
+
+            # Require only geometry fields — file_type etc. are collected
+            # opportunistically but never waited on (they can sit after the
+            # tokenizer blobs, which would defeat the early exit).
+            want = {"general.architecture"}
+            found = {}
+            bare_geometry = {"block_count", "context_length", "embedding_length",
+                             "expert_count", "expert_used_count",
+                             "attention.head_count_kv", "attention.key_length",
+                             "attention.value_length", "attention.head_dim",
+                             "attention.sliding_window", "attention.index_topk",
+                             "attention.compress_ratios"}
+            # Short aliases so consumers can read plain "head_count_kv" etc.
+            geo_alias = {"attention.head_count_kv": "head_count_kv",
+                         "attention.key_length": "key_length",
+                         "attention.value_length": "value_length",
+                         "attention.head_dim": "head_dim",
+                         "attention.sliding_window": "sliding_window",
+                         "attention.index_topk": "index_topk",
+                         "attention.compress_ratios": "compress_ratios"}
+            for _ in range(nkv):
+                klen = struct.unpack("<Q", f.read(8))[0]
+                if klen > 4096:
+                    break  # corrupt / not a real key
+                key = f.read(klen).decode("utf-8", "replace")
+                vt = struct.unpack("<I", f.read(4))[0]
+                val = read_val(f, vt)
+                if key == "general.architecture":
+                    found[key] = val
+                    arch = val
+                    for bare in bare_geometry:
+                        want.add(f"{arch}.{bare}")
+                elif key in want and key not in found:
+                    found[key] = val
+                # Strip the arch prefix so consumers see plain "attention.head_count_kv"
+                arch = found.get("general.architecture")
+                if arch and key.startswith(f"{arch}."):
+                    bare = key[len(arch) + 1:]
+                    if bare in bare_geometry and bare not in found:
+                        found[bare] = val
+                        short = geo_alias.get(bare)
+                        if short and short not in found:
+                            found[short] = val
+                if all(k in found for k in want):
+                    break  # geometry fully resolved — stop before tokenizer blobs
+            meta = found if found.get("general.architecture") else {}
+    except (OSError, struct.error, UnicodeDecodeError):
+        meta = None
+    _GGUF_META_CACHE[ckey] = meta
+    return meta
+
+
 def find_model_arch(model_path, model_quant):
     """Find the architecture params for a model by matching its path.
     Returns (layers, kv_heads, head_dim) or None."""
@@ -2130,6 +2244,15 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         return None
     # Get architecture
     arch = find_model_arch(active["model_path"], active["model_quant"])
+    # GGUF header-first: exact geometry (layers / kv_heads / head_dim) straight
+    # from the model file's own metadata — the same source llama.cpp uses.
+    # Table values remain the fallback for reference-only entries (no local file).
+    gguf_meta = read_gguf_meta(active.get("model_path")) or {}
+    if not arch and isinstance(gguf_meta.get("head_count_kv"), int) and isinstance((gguf_meta.get("key_length") or gguf_meta.get("head_dim")), int):
+        # Model absent from the table: build geometry directly from the header
+        arch = (gguf_meta.get("block_count") or 0,
+                gguf_meta["head_count_kv"],
+                gguf_meta.get("key_length") or gguf_meta["head_dim"])
     if not arch:
         # Unknown architecture — fall back to raw nvidia-smi VRAM estimate
         # Still useful: show GPU bars, live decode speed, model label
@@ -2149,6 +2272,17 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
                 )
         return None
     layers, kv_heads, head_dim = arch
+    # Header truth beats filename guess: exact geometry from the file itself.
+    # Guard: some archs store per-layer arrays (e.g. gemma4 head_count_kv) —
+    # those models use dedicated dual-geometry branches and must not get a
+    # non-scalar fed into the generic formula.
+    if isinstance(gguf_meta.get("block_count"), int):
+        layers = gguf_meta["block_count"]
+    if isinstance(gguf_meta.get("head_count_kv"), int):
+        kv_heads = gguf_meta["head_count_kv"]
+    _hd = gguf_meta.get("key_length") or gguf_meta.get("head_dim") or gguf_meta.get("value_length")
+    if isinstance(_hd, int):
+        head_dim = _hd
     # DeepSeek R1/V3, Kimi K2, Mistral Large 3 use MLA (Multi-head Latent Attention) — compressed KV cache.
     # Standard formula wildly overestimates. Use flat ~70 KB/token instead.
     # Mistral Large 3 note: Uses MLA, same family as DeepSeek V3. KV is a low-rank latent,
@@ -2221,7 +2355,9 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
     # Get reserved context size from --ctx-size (-c flag)
     ctx_size = active.get("max_context", 0)
     if ctx_size == 0:
-        ctx_size = 4096  # stable default when -c / --ctx-size is missing
+        # Header context_length is the model's max — used ONLY as fallback when
+        # no runtime -c budget is known (a running server's -c always wins).
+        ctx_size = gguf_meta.get("context_length") or 4096  # stable default
     # Get cache bytes (supports split KV quantization)
     cache_bytes = get_cache_bytes(
         active.get("cache_type_k"),
