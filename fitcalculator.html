@@ -47,6 +47,8 @@
     margin-bottom: 9px; font-size: 0.86rem; min-height: var(--row-h);
   }
   .ctrl.full { grid-template-columns: 112px 1fr; }
+  /* Rows that wrap their number input in a .stepper need a wider column */
+  .ctrl.with-stepper { grid-template-columns: 112px auto 1fr auto; }
   .ctrl .lbl { color: var(--text); line-height: 1.2; }
   .ctrl .unit {
     min-width: 52px; text-align: right; font-variant-numeric: tabular-nums;
@@ -209,9 +211,13 @@
 
       <h2>Context &amp; offload <span class="hint">type exact or drag</span></h2>
       <div class="section-note">Context curve: ~128k @ 60% · ~262k @ 80% · 1M @ 100%</div>
-      <div class="ctrl">
+      <div class="ctrl with-stepper">
         <span class="lbl">Context (-c)</span>
-        <input type="number" id="ctxNum" min="512" max="1048576" step="1024" value="65536" title="Exact tokens">
+        <div class="stepper">
+          <button type="button" data-step="down" aria-label="Decrease context">−</button>
+          <input type="number" id="ctxNum" min="512" max="1048576" step="1024" value="65536" title="Exact tokens">
+          <button type="button" data-step="up" aria-label="Increase context">+</button>
+        </div>
         <input type="range" id="ctx" min="0" max="1000" step="1" value="500" title="Drag for coarse control">
         <span class="unit" id="ctxVal">64k</span>
       </div>
@@ -1187,7 +1193,23 @@ function pair(sliderId, numId, opts = {}) {
   n.addEventListener("keydown", e => { if (e.key === "Enter") { fromNum(); estimate(); n.blur(); } });
 }
 
+function enableSteppers() {
+  document.querySelectorAll(".stepper").forEach(wrap => {
+    const input = wrap.querySelector("input[type=number]");
+    if (!input) return;
+    wrap.querySelectorAll("button").forEach(btn => {
+      btn.addEventListener("click", () => {
+        if (btn.dataset.step === "down") input.stepDown();
+        else input.stepUp();
+        // Reuse the field's normal change handler (sync + re-estimate)
+        input.dispatchEvent(new Event("change"));
+      });
+    });
+  });
+}
+
 function bind() {
+  enableSteppers();
   // Context: special (non-linear mapping)
   $("ctx").addEventListener("input", () => { syncCtxFromSlider(); estimate(); });
   $("ctxNum").addEventListener("change", () => { syncCtxFromNum(); estimate(); });
