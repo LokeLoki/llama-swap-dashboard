@@ -222,7 +222,7 @@
         <button type="button" data-ctx="32768">32k</button>
         <button type="button" data-ctx="65536">64k</button>
         <button type="button" data-ctx="131072">128k</button>
-        <button type="button" data-ctx="262144">262k</button>
+        <button type="button" data-ctx="262144">256k</button>
         <button type="button" data-ctx="524288">512k</button>
         <button type="button" data-ctx="1048576">1M</button>
       </div>
@@ -525,8 +525,8 @@ function populate() {
 
 function fmtCtx(n) {
   n = Math.round(+n || 0);
-  if (n >= 1e6) return (n/1e6).toFixed(n % 1e6 ? 2 : 0).replace(/\.?0+$/,"") + "M";
-  if (n >= 1000) return (n/1000).toFixed(n % 1000 ? 1 : 0) + "k";
+  if (n >= 1048576) return (n / 1048576).toFixed(n % 1048576 ? 2 : 0).replace(/\.?0+$/, "") + "M";
+  if (n >= 1024) return (n / 1024).toFixed(n % 1024 ? 1 : 0).replace(/\.?0+$/, "") + "k";
   return String(n);
 }
 
@@ -577,8 +577,7 @@ function syncCtxFromSlider() {
 function syncCtxFromNum() {
   let tokens = Math.round(+$("ctxNum").value || 65536);
   tokens = Math.max(512, Math.min(1048576, tokens));
-  // snap to 512 boundary for nicer values
-  tokens = Math.round(tokens / 512) * 512;
+  // Keep the user's exact input — no forced snapping (respect 8000, not 8192)
   $("ctxNum").value = tokens;
   $("ctx").value = pctFromCtx(tokens);
   $("ctxVal").textContent = fmtCtx(tokens);
