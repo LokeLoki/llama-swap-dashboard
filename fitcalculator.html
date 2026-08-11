@@ -422,6 +422,7 @@ const ARCH = {
   "yi-34b":  { layers:60, kv:8, dim:128, kind:"dense", label:"Yi 34B",  w:{q4_k_m:19000,q5_k_m:23000,q6_k:27000,q8_0:35000,f16:68000} },
   "nemotron-h-8b":  { layers:52,  kv:8, dim:128, kind:"hybrid", eff:4,  label:"Nemotron-H 8B",  w:{q4_k_m:4800,q5_k_m:5600,q6_k:6600,q8_0:8500,f16:16000} },
   "nemotron-h-56b": { layers:118, kv:8, dim:128, kind:"hybrid", eff:10, label:"Nemotron-H 56B", w:{q4_k_m:30000,q5_k_m:36000,q6_k:42000,q8_0:55000,f16:110000} },
+  "muse-glimmer-30b": { layers:52, kv:2, dim:128, kind:"hybrid", eff:13, window:2048, label:"Muse Glimmer 30B", w:{q4_k_m:16800,q4_k_xl:15900,q5_k_m:19200,q5_k_s:19100,q6_k:26300,q8_0:34000,iq4_xs:14000,f16:58000} },
 };
 
 const CACHE_BYTES = {
@@ -486,7 +487,7 @@ function populate() {
     ],
     "Other": [
       "phi-4","phi-3.5","command-r","command-r-plus","yi-34b",
-      "nemotron-h-8b","nemotron-h-56b"
+      "nemotron-h-8b","nemotron-h-56b","muse-glimmer-30b"
     ],
   };
 
