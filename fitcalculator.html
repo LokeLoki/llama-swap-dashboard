@@ -355,6 +355,7 @@
 <script>
 /* ── Architecture table (mirrors dashboard) ── */
 const ARCH = {
+  "qwen3.8-27b":     { layers:65, kv:4, dim:256, kind:"hybrid", eff:16, label:"Qwen3.8 27B", w:{q4_k_m:16500,q4_k_xl:18000,q5_k_m:18900,q6_k:21800,q8_0:28800,iq4_xs:14500,f16:54000} },
   "qwen3.6-27b":     { layers:65, kv:4, dim:256, kind:"hybrid", eff:16, label:"Qwen3.6 27B", w:{q4_k_m:16500,q4_k_xl:18000,q5_k_s:19300,q5_k_m:19800,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
   "qwen3.5-27b":     { layers:64, kv:4, dim:256, kind:"hybrid", eff:16, label:"Qwen3.5 27B", w:{q4_k_m:16500,q5_k_s:19300,q5_k_m:19800,q6_k:22500,q8_0:28800,iq4_xs:14500,f16:54000} },
   "qwen3.5-9b":     { layers:32, kv:4, dim:256, kind:"hybrid", eff:8, label:"Qwen3.5 9B",  w:{q4_k_m:5200,q5_k_m:6200,q6_k:7200,q8_0:9200,iq4_xs:4600,f16:18000} },
@@ -462,8 +463,8 @@ function $(id){ return document.getElementById(id); }
 function populate() {
   const a = $("arch");
   const groups = {
-    "Qwen 3.6 / 3.5 hybrid": [
-      "qwen3.6-27b","qwen3.5-27b","qwen3.5-9b","qwen3.5-8b",
+    "Qwen 3.8 / 3.6 / 3.5 hybrid": [
+      "qwen3.8-27b","qwen3.6-27b","qwen3.5-27b","qwen3.5-9b","qwen3.5-8b",
       "qwen3.6-35b-a3b","qwen3.5-35b-a3b","qwen3.5-122b-a10b","qwen3.5-397b-a17b"
     ],
     "Special / derivative": ["bonsai"],
@@ -699,7 +700,8 @@ function guessArchAndQuant(filename) {
     if (lowerNorm.includes(normalize(k))) { arch = k; break; }
   }
   if (!arch) {
-    if (/qwen3\.6.*27b|qwen3-6.*27/.test(rawLower)) arch = "qwen3.6-27b";
+    if (/qwen3\.8.*27b|qwen3-8.*27/.test(rawLower)) arch = "qwen3.8-27b";
+    else if (/qwen3\.6.*27b|qwen3-6.*27/.test(rawLower)) arch = "qwen3.6-27b";
     else if (/bonsai/.test(rawLower)) arch = "bonsai";
   }
   return { arch, quant };

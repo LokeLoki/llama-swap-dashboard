@@ -93,6 +93,7 @@ class MainModelVram:
     cache_type: str
     offload_ratio: float = 1.0
     layers: int = 0
+    draft_cache_mb: float = 0.0
     # Partial-offload residual info for Fit view
     residual_mb: float = 0.0
     # Runtime overhead estimates (not in static payload)
@@ -186,6 +187,7 @@ MODEL_ARCHITECTURES = {
     # in-file tensor block counts (blk.0..N):
     #   qwen3.6-27b = 65 real blocks in local GGFs (official config says 64)
     #   qwen3.5-9b  = 32 (official config; was 48)
+    "qwen3.8-27b":   (65, 4, 256),  # same hybrid geometry as 3.6; verified local Q6_K/Q5_K_M GGUF + HF config
     "qwen3.6-27b":   (65, 4, 256),
     "qwen3.5-27b":   (64, 4, 256),
     "qwen3.5-9b":    (32, 4, 256),
@@ -578,6 +580,7 @@ def estimate_runtime_overhead(gpus, batch_size, ubatch_size, num_active_gpus, ct
 
 
 QWEN_HYBRID_LAYERS = {
+    "qwen3.8-27b":   16,   # 65/64 total → 16 GatedAttn (every 4th); verified local GGUF (17 attn_k incl. MTP blk.64)
     "qwen3.6-27b":   16,   # 65/64 total → 16 GatedAttn (every 4th)
     "qwen3.5-27b":   16,
     "qwen3.5-9b":    8,    # 32 total → 8 GatedAttn (verified official config)
@@ -2205,7 +2208,7 @@ def auto_detect_model_traits(model_path, cmd_str, n_layers=0):
     # 2. Hybrid detection — model name + existing architecture tables
     #    (dshybrid = DeepSeek-V4-Flash CSA/HCA counts as hybrid for residual/discounts)
     is_hybrid = (
-        any(k in name for k in ("qwen3.5", "qwen3.6", "qwen3-5", "qwen3-6", "bonsai", "ornith", "deepseek-v4-flash"))
+        any(k in name for k in ("qwen3.5", "qwen3.6", "qwen3.8", "qwen3-5", "qwen3-6", "qwen3-8", "bonsai", "ornith", "deepseek-v4-flash"))
         or name in QWEN_HYBRID_LAYERS
     )
 
@@ -2571,6 +2574,7 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         mmproj_mb=mmproj_mb,
         draft_mb=draft_mb,
         cache_mb=cache_mb,
+        draft_cache_mb=draft_cache_mb,
         cache_type=ct_display,
         offload_ratio=offload_ratio,
         layers=layers,
@@ -3260,6 +3264,7 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sy
     lines.append(f"  {DIM}{'─' * 56}{RESET}")
 
     # ── Model breakdown ───────────────────────────────────────
+    active = running_models[0] if running_models else {}
     w = main_vram_info.weight_mb / 1024
     k = main_vram_info.cache_mb / 1024
     m = main_vram_info.mmproj_mb / 1024
@@ -3274,7 +3279,8 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sy
     if m > 0.01:
         lines.append(f"  {DIM}mmproj{RESET}       {DIM_CYAN}{m:7.2f}{RESET} {WHITE}GB{RESET}")
     elif active.get("no_mmproj_offload"):
-        lines.append(f"  {DIM}mmproj{RESET}       {DIM}0.00{RESET} {WHITE}GB{RESET}  {DIM}(CPU){RESET}")
+        mm_cpu_gb = active.get("mmproj_file_mb", 0) / 1024
+        lines.append(f"  {DIM}mmproj{RESET}       {DIM}{'0.00':>7}{RESET} {WHITE}GB{RESET}  {DIM}(CPU · {mm_cpu_gb:.1f} GB in RAM){RESET}")
     if d > 0.01:
         lines.append(f"  {DIM}draft{RESET}        {DIM_CYAN}{d:7.2f}{RESET} {WHITE}GB{RESET}")
     lines.append(f"  {DIM}Static{RESET}       {DIM_CYAN}{static:7.2f}{RESET} {WHITE}GB{RESET}")
@@ -3348,6 +3354,30 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sy
                 ts_label = f"  {DIM}({split[i]:.0f}%){RESET}"
 
             lines.append(f"  {DIM}[{gpu.id}]{RESET} {gpu.name:<14} {vram_bar} {mem_str}{ts_label}")
+
+    # ── Actual vs estimated (catches big-draft / DFlash setups) ──
+    if gpus:
+        active_idx = set(get_inference_gpu_indices())
+        if active_idx:
+            measured = sum(g.mem_used_mb for g in gpus if g.id in active_idx)
+            delta = measured - main_vram_info.total_mb
+            dgb = abs(delta) / 1024
+            if delta >= 1536:
+                delta_str = f"{LIGHT_ORANGE}+{delta / 1024:.2f} GB{RESET}"
+            elif delta <= -1536:
+                delta_str = f"{LIGHT_GREEN}{delta / 1024:.2f} GB{RESET}"
+            else:
+                delta_str = f"{DIM}±{dgb:.2f} GB{RESET}"
+            lines.append(f"  {DIM}{'─' * 56}{RESET}")
+            lines.append(f"  {DIM}Actual (measured){RESET}  {DIM_CYAN}{measured / 1024:7.2f}{RESET} {WHITE}GB{RESET}  {DIM}vs est {main_vram_info.total_mb / 1024:.2f} GB → {RESET}{delta_str}{RESET}")
+            if delta >= 1536:
+                extra = []
+                if main_vram_info.draft_mb > 0.01:
+                    extra.append(f"draft {main_vram_info.draft_mb / 1024:.1f} GB")
+                if main_vram_info.draft_cache_mb > 0.01:
+                    extra.append(f"draft KV {main_vram_info.draft_cache_mb / 1024:.2f} GB")
+                extra.append("overhead?/unmodeled")
+                lines.append(f"  {DIM}  → check {DIM_CYAN}{' + '.join(extra)}{RESET} — DFlash/other drafts often exceed the {dgb:.1f} GB estimate")
 
     # ── Flags (bottom of the view) ──────────────────────────────
     flags = _format_flags(running_models[0].get("all_flags") if running_models else None)
@@ -3523,7 +3553,7 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_model, 
         aux_vram_str = f"{aux_total_mb / 1024:.1f} GB" if aux_total_mb else "—"
         aux_line = aux_vram_str
         if aux_tps:
-            aux_line += f" · {aux_tps:.0f} t/s"
+            aux_line += f" · {LIGHT_GREEN}{aux_tps:.0f} t/s{RESET}"
         lines.append(_format_metric_line(f"Aux: {aux_short} ({aux_port})", aux_line, active=aux_active, is_aux=True, spinner_frame=spinner_frame))
     else:
         lines.append(_format_metric_line("Aux: None", None, active=False, is_aux=True, spinner_frame=spinner_frame))
