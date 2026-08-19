@@ -871,7 +871,8 @@ def resolve_host(cli_host, config=None):
             save_config(cli_host)
             print(f"Connected to {cli_host} ✓")
             return cli_host
-        print(f"llama-swap not reachable at {cli_host}")
+        print(f"Could not reach llama-swap at {cli_host}")
+        print(f"→ Make sure llama-swap is running, or pass --host http://your-host:port")
         sys.exit(1)
 
     if config.get("host"):
@@ -880,7 +881,8 @@ def resolve_host(cli_host, config=None):
         if check_host(saved_host):
             return saved_host
         # Stale config — ask user
-        print(f"llama-swap not reachable at saved host: {saved_host}")
+        print(f"Could not reach llama-swap at saved host: {saved_host}")
+        print(f"→ Make sure llama-swap is running at that host, or enter a new one:")
         print(f"Enter new host (e.g., http://localhost:9090) or press Enter for default [{DEFAULT_HOST}]: ", end="")
         user_input = sys.stdin.readline().strip()
         new_host = user_input if user_input else DEFAULT_HOST
@@ -888,7 +890,7 @@ def resolve_host(cli_host, config=None):
             save_config(new_host)
             print(f"Connected to {new_host} ✓")
             return new_host
-        print(f"Could not connect to {new_host}. Using default.")
+        print(f"Could not reach llama-swap at {new_host}. Using default.")
 
     # No config file yet — try default first
     if check_host(DEFAULT_HOST):
