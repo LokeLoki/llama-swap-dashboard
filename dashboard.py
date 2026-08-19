@@ -3208,8 +3208,10 @@ def _format_flags(all_flags):
         if v is False:
             return f"  {DIM}{k}{RESET} {DIM}off{RESET}"
         val = str(v)
-        if len(val) > 42:
-            val = val[:39] + "..."
+        # Keep label + value within the 56-wide Fit border
+        max_val = 56 - 2 - len(k) - 1
+        if len(val) > max_val:
+            val = val[: max(1, max_val - 3)] + "..."
         return f"  {DIM}{k}{RESET} {SOFT_WHITE}{val}{RESET}"
 
     for title, keys in groups:
@@ -3360,24 +3362,30 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sy
         active_idx = set(get_inference_gpu_indices())
         if active_idx:
             measured = sum(g.mem_used_mb for g in gpus if g.id in active_idx)
-            delta = measured - main_vram_info.total_mb
+            est = main_vram_info.total_mb
+            delta = measured - est
             dgb = abs(delta) / 1024
             if delta >= 1536:
-                delta_str = f"{LIGHT_ORANGE}+{delta / 1024:.2f} GB{RESET}"
+                delta_str = f"{LIGHT_ORANGE}+{delta / 1024:.1f} GB{RESET}"
             elif delta <= -1536:
-                delta_str = f"{LIGHT_GREEN}{delta / 1024:.2f} GB{RESET}"
+                delta_str = f"{LIGHT_GREEN}{delta / 1024:.1f} GB{RESET}"
             else:
-                delta_str = f"{DIM}±{dgb:.2f} GB{RESET}"
+                delta_str = f"{DIM}±{dgb:.1f} GB{RESET}"
             lines.append(f"  {DIM}{'─' * 56}{RESET}")
-            lines.append(f"  {DIM}Actual (measured){RESET}  {DIM_CYAN}{measured / 1024:7.2f}{RESET} {WHITE}GB{RESET}  {DIM}vs est {main_vram_info.total_mb / 1024:.2f} GB → {RESET}{delta_str}{RESET}")
+            lines.append(f"  {DIM}Actual{RESET}    {DIM_CYAN}{measured / 1024:6.1f}{RESET} {WHITE}GB{RESET}  {DIM}est{RESET} {DIM_CYAN}{est / 1024:6.1f}{RESET} {WHITE}GB{RESET}")
+            lines.append(f"  {DIM}Δ measured − est:{RESET} {delta_str}")
             if delta >= 1536:
                 extra = []
                 if main_vram_info.draft_mb > 0.01:
                     extra.append(f"draft {main_vram_info.draft_mb / 1024:.1f} GB")
                 if main_vram_info.draft_cache_mb > 0.01:
                     extra.append(f"draft KV {main_vram_info.draft_cache_mb / 1024:.2f} GB")
-                extra.append("overhead?/unmodeled")
-                lines.append(f"  {DIM}  → check {DIM_CYAN}{' + '.join(extra)}{RESET} — DFlash/other drafts often exceed the {dgb:.1f} GB estimate")
+                extra.append("unmodeled")
+                hint = f"  → check {DIM_CYAN}{' + '.join(extra)}{RESET} — drafts often exceed est"
+                plain = re.sub(r"\x1b\[[0-9;]*m", "", hint)
+                if len(plain) > 56:
+                    hint = f"{DIM}  {plain[:53]}...{RESET}"
+                lines.append(hint)
 
     # ── Flags (bottom of the view) ──────────────────────────────
     flags = _format_flags(running_models[0].get("all_flags") if running_models else None)
