@@ -1196,12 +1196,16 @@ def format_time(ts_str):
 
 # ── llama-swap API ─────────────────────────────────────
 
+_LS_REACHABLE = True  # last /api/performance probe succeeded (banner in render)
+
 def get_llama_swap_stats(api_url):
     """Get latest system stats from /api/performance."""
+    global _LS_REACHABLE
     try:
         req = urllib.request.Request(api_url)
         with urllib.request.urlopen(req, timeout=5) as resp:
             data = json.loads(resp.read())
+        _LS_REACHABLE = True
         sys_stats = data.get("sys_stats", [])
         if sys_stats:
             latest = sys_stats[-1]
@@ -1210,7 +1214,7 @@ def get_llama_swap_stats(api_url):
                 mem_total_mb=latest.get("mem_total_mb", 0),
             )
     except (urllib.error.URLError, urllib.error.HTTPError, json.JSONDecodeError, TimeoutError, OSError):
-        pass
+        _LS_REACHABLE = False
     return None
 
 
@@ -3251,6 +3255,12 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sy
     lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append(f"  {BOLD}  Model Fit Calculator{RESET}")
     lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
+
+    # Lost-connection banner — auto-clears when /api/performance responds again
+    if not _LS_REACHABLE:
+        lines.append(f"  {YELLOW}⚠ llama-swap unreachable — retrying…{RESET}")
+        lines.append("")
+
     lines.append("")
 
     if not main_vram_info:
@@ -3411,6 +3421,11 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_model, 
     lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
     lines.append(f"  {BOLD}  llama-swap Dashboard{RESET}  {now}")
     lines.append(f"  {BOLD}{BORDER}{'═' * 56}{RESET}")
+
+    # Lost-connection banner — auto-clears when /api/performance responds again
+    if not _LS_REACHABLE:
+        lines.append(f"  {YELLOW}⚠ llama-swap unreachable — retrying…{RESET}")
+        lines.append("")
 
     # Model name — right after header border, same color as border
     if running_models and running_models[0].get("model_path"):
@@ -3629,6 +3644,7 @@ def main():
     aux_model = None
     running_models = None
     metrics = []
+    ls_down = False  # llama-swap unreachable (banner in render)
 
     if config_yaml:
         print(f"Model config loaded: {config_yaml}")
