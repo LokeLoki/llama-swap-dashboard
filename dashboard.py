@@ -103,6 +103,9 @@ class MainModelVram:
     tensor_sync_mb: float = 0.0
     overhead_mb: float = 0.0
     split_pct: list = None
+    # Physical GPU IDs the -ts split maps onto (from CUDA/ROCR_VISIBLE_DEVICES
+    # in the model's config.yaml env:). None = split is positional from GPU 0.
+    split_gpu_ids: list = None
 
 @dataclasses.dataclass
 class ModelIdentity:
@@ -150,6 +153,14 @@ RE_TENSOR_SPLIT = re.compile(r'(?:-ts|--tensor-split)\s+([\d.]+(?:,[\d.]+)*)')
 
 # File size cache — model files don't change while the process is alive
 _FILE_SIZE_CACHE = {}
+
+# Model ID → physical GPU IDs from CUDA/ROCR/HIP_VISIBLE_DEVICES in the
+# model's config.yaml env: line. Refreshed per cycle from config.yaml.
+# Lets -ts split percentages land on the right physical GPUs when a model
+# is pinned away from GPU 0 (e.g. env CUDA_VISIBLE_DEVICES=1,2 + -ts 20,2).
+_VISIBLE_DEVICES_MAP = {}
+RE_VISIBLE_DEVICES = re.compile(
+    r'(?:CUDA|ROCR|HIP)_VISIBLE_DEVICES\s*=\s*"?(?P<ids>[0-9,\s]*)"', re.IGNORECASE)
 
 TOKEN_BUCKETS = [
     ("0-10k", 0, 9999),
@@ -2278,6 +2289,7 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
                     cache_type="unknown",
                     overhead_mb=0.0,
                     split_pct=active.get("split_pct"),
+                    split_gpu_ids=_VISIBLE_DEVICES_MAP.get(model_id),
                 )
         return None
     layers, kv_heads, head_dim = arch
@@ -2591,6 +2603,7 @@ def get_main_model_vram(running_models, valid_metrics, gpus=None):
         tensor_sync_mb=overhead["tensor_sync_mb"],
         overhead_mb=overhead["total_mb"],
         split_pct=active.get("split_pct"),
+        split_gpu_ids=_VISIBLE_DEVICES_MAP.get(model_id),
     )
 
 
@@ -2779,6 +2792,40 @@ def _parse_yaml_models_simple(yaml_path):
                         model_map[current_model] = m_match.group(1)
                         current_model = None
         return model_map
+    except (IOError, OSError, ValueError):
+        return {}  # Failed to read / parse config.yaml
+
+
+def _parse_yaml_visible_devices(yaml_path):
+    """Parse model ID → physical GPU IDs from config.yaml env: lines.
+
+    Reads CUDA/ROCR/HIP_VISIBLE_DEVICES (NVIDIA / AMD Vulkan / AMD ROCm)
+    from each model block's env list, e.g.
+        "27i":
+          env: ["CUDA_VISIBLE_DEVICES=1,2"]
+    Returns {"27i": [1, 2], ...}. Models without an env line are omitted."""
+    if not yaml_path or not os.path.isfile(yaml_path):
+        return {}
+    try:
+        dev_map = {}
+        current_model = None
+        with open(yaml_path, "r", encoding="utf-8") as f:
+            for line in f:
+                stripped = line.strip()
+                # Model ID: indented key with quotes, e.g. '  "27i":'
+                model_match = re.match(r'^\s+"([^"]+)"\s*:', line)
+                if model_match:
+                    current_model = model_match.group(1)
+                    continue
+                if not current_model:
+                    continue
+                vd_match = RE_VISIBLE_DEVICES.search(stripped)
+                if vd_match:
+                    ids = [int(x) for x in re.split(r'[,\s]+', vd_match.group("ids").strip()) if x != ""]
+                    if ids:
+                        dev_map[current_model] = ids
+                    current_model = None
+        return dev_map
     except (IOError, OSError, ValueError):
         return {}  # Failed to read / parse config.yaml
 
@@ -3248,6 +3295,24 @@ def _format_flags(all_flags):
     return lines
 
 
+def _split_position(gpu_id, i, split_gpu_ids):
+    """Index into split_pct for a given GPU.
+
+    split_gpu_ids = physical GPU IDs the model's -ts list maps onto
+    (from CUDA/ROCR/HIP_VISIBLE_DEVICES in config.yaml). With it, split entry k
+    belongs to physical GPU split_gpu_ids[k] — so a model pinned to env
+    CUDA_VISIBLE_DEVICES=1,2 with -ts 20,2 shows its shares on GPUs 1 and 2,
+    not 0 and 1. Without it (no env line / plain mode), placement is
+    positional from GPU 0 (legacy behavior).
+    Returns the split_pct index, or -1 if this GPU is not in the split."""
+    if split_gpu_ids:
+        try:
+            return split_gpu_ids.index(gpu_id)
+        except ValueError:
+            return -1
+    return i
+
+
 def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sys_info=None):
     """Full-screen model-fit view. Same chrome language as the main dashboard."""
     lines = []
@@ -3356,6 +3421,7 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sy
         lines.append(f"  {DIM}{'─' * 56}{RESET}")
         lines.append(f"  {BOLD}GPUs{RESET}")
         split = main_vram_info.split_pct
+        split_gpu_ids = main_vram_info.split_gpu_ids
         for i, gpu in enumerate(gpus):
             mem_used = gpu.mem_used_mb
             mem_total = gpu.mem_total_mb
@@ -3364,8 +3430,9 @@ def render_vram_fit(main_vram_info, running_models, gpus=None, identity=None, sy
             vram_bar = util_bar(mem_pct, 14)
 
             ts_label = ""
-            if split and i < len(split) and split[i] > 0:
-                ts_label = f"  {DIM}({split[i]:.0f}%){RESET}"
+            pos = _split_position(gpu.id, i, split_gpu_ids) if split else -1
+            if 0 <= pos < len(split) and split[pos] > 0:
+                ts_label = f"  {DIM}({split[pos]:.0f}%){RESET}"
 
             lines.append(f"  {DIM}[{gpu.id}]{RESET} {gpu.name:<14} {vram_bar} {mem_str}{ts_label}")
 
@@ -3452,8 +3519,10 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_model, 
 
     # Multi-GPU tensor split percentages (from active model's -ts flag)
     split_pct = None
+    split_gpu_ids = None
     if main_vram_info and main_vram_info.split_pct:
         split_pct = main_vram_info.split_pct
+        split_gpu_ids = main_vram_info.split_gpu_ids
 
     for i, gpu in enumerate(gpus):
         temp = gpu.temp_c
@@ -3477,8 +3546,9 @@ def render(gpus, sys_info, buckets, valid_metrics, refresh_interval, aux_model, 
 
         # Per-GPU runtime overhead appended to VRAM line
         runtime_label = ""
-        if split_pct and main_vram_info and i < len(split_pct):
-            pct = split_pct[i]
+        pos = _split_position(gpu.id, i, split_gpu_ids) if split_pct else -1
+        if 0 <= pos < len(split_pct):
+            pct = split_pct[pos]
             if pct > 0:
                 gpu_overhead_mb = main_vram_info.overhead_mb * (pct / 100)
                 gpu_overhead_gb = gpu_overhead_mb / 1024
@@ -3727,6 +3797,9 @@ def main():
     
             buckets = get_metrics_by_bucket(chart_metrics)
             identity = get_active_model_identity(valid, config_yaml)
+            # Refresh physical GPU map from config.yaml (env: CUDA_VISIBLE_DEVICES)
+            global _VISIBLE_DEVICES_MAP
+            _VISIBLE_DEVICES_MAP = _parse_yaml_visible_devices(config_yaml)
 
             if fit_mode:
                 # Full-screen VRAM fit calculator
